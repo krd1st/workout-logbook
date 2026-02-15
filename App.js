@@ -34,7 +34,10 @@ import {
   useTheme,
 } from "react-native-paper";
 import { useFonts } from "expo-font";
+import * as SplashScreen from "expo-splash-screen";
 import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
+
+SplashScreen.preventAutoHideAsync();
 
 // All data is local (expo-sqlite). No network. Works fully offline once built.
 import {
@@ -1079,8 +1082,8 @@ function ExerciseCard({
   );
 }
 
-function RoutineRoute() {
-  const [loading, setLoading] = React.useState(true);
+function RoutineRoute({ dataReady = true }) {
+  const [loading, setLoading] = React.useState(!dataReady);
   const [currentDayIndex, setCurrentDayIndex] = React.useState(null);
   const [workoutId, setWorkoutId] = React.useState(null);
   const [refreshToken, setRefreshToken] = React.useState(0);
@@ -1144,7 +1147,7 @@ function RoutineRoute() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, []); // idempotent; ensures DB ready even if App splash was skipped
 
   const contentStyle = React.useMemo(
     () => ({
@@ -1353,29 +1356,114 @@ function RoutineRoute() {
   );
 }
 
+const SPLASH_MIN_DURATION_MS = 1000;
+
+function PulsingSplashScreen({ onFinish, backgroundColor, isAppReady, minDurationMs }) {
+  const scale = React.useRef(new Animated.Value(1)).current;
+  const [minTimeElapsed, setMinTimeElapsed] = React.useState(false);
+  const duration = minDurationMs ?? SPLASH_MIN_DURATION_MS;
+
+  // Hide native splash as soon as this screen is shown so the dumbbell animation is visible
+  React.useEffect(() => {
+    SplashScreen.hideAsync();
+  }, []);
+
+  React.useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scale, {
+          toValue: 1.06,
+          duration: 700,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+        Animated.timing(scale, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.ease),
+        }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [scale]);
+
+  React.useEffect(() => {
+    const t = setTimeout(() => setMinTimeElapsed(true), duration);
+    return () => clearTimeout(t);
+  }, [duration]);
+
+  React.useEffect(() => {
+    if (minTimeElapsed && isAppReady) onFinish();
+  }, [minTimeElapsed, isAppReady, onFinish]);
+
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor,
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <MaterialCommunityIcons name="dumbbell" size={88} color="#9ca3af" />
+      </Animated.View>
+    </View>
+  );
+}
+
 export default function App() {
   // Preload MaterialCommunityIcons for offline reliability
   const [fontsLoaded] = useFonts({
     ...MaterialCommunityIcons.font,
   });
+  const [showSplash, setShowSplash] = React.useState(true);
+  const [dataReady, setDataReady] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    initDatabase().then(() => {
+      if (!cancelled) setDataReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const scheme = useColorScheme();
   const theme = scheme === "dark" ? MD3DarkTheme : MD3LightTheme;
   const colors = React.useMemo(() => getAppColors(theme), [theme]);
 
+  const handleSplashFinish = React.useCallback(() => {
+    setShowSplash(false);
+  }, []);
+
   // Wait for fonts to load before rendering icons
   if (!fontsLoaded) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" />
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color="#9ca3af" />
       </View>
+    );
+  }
+
+  if (showSplash) {
+    return (
+      <PulsingSplashScreen
+        onFinish={handleSplashFinish}
+        backgroundColor={colors.background}
+        isAppReady={dataReady}
+        minDurationMs={SPLASH_MIN_DURATION_MS}
+      />
     );
   }
 
   return (
     <PaperProvider theme={theme}>
       <SafeAreaProvider style={{ flex: 1, backgroundColor: colors.background }}>
-        <RoutineRoute />
+        <RoutineRoute dataReady={dataReady} />
       </SafeAreaProvider>
     </PaperProvider>
   );
