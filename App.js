@@ -301,6 +301,8 @@ function MilestoneBar({
   selectedDotSize = SELECTED_DOT_SIZE,
   dotHitPadding = 8,
 }) {
+  const [barWidth, setBarWidth] = React.useState(0);
+
   const stepValues = React.useMemo(() => {
     const arr = [];
     for (let v = min; v <= max; v += step) arr.push(v);
@@ -315,64 +317,63 @@ function MilestoneBar({
     [onValueChange],
   );
 
-  const edge = (selectedDotSize + dotHitPadding) / 2;
+  const n = stepValues.length;
 
   return (
-    <View style={[{ height: barHeight, justifyContent: "center" }, style]}>
-      {/* Track line: between first and last dot centers so no line outside ends */}
+    <View
+      style={[{ height: barHeight, justifyContent: "center" }, style]}
+      onLayout={(e) => {
+        const w = e?.nativeEvent?.layout?.width;
+        if (typeof w === "number" && w > 0) setBarWidth(w);
+      }}
+    >
+      {/* Track line: full width edge to edge */}
       <View
         style={{
           position: "absolute",
-          left: edge,
-          right: edge,
+          left: 0,
+          right: 0,
           top: (barHeight - trackHeight) / 2,
           height: trackHeight,
           borderRadius: trackHeight / 2,
           backgroundColor: APP_COLORS.milestoneTrack,
         }}
       />
-      {/* Milestone buttons: each step is a tappable circle */}
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: 0,
-          bottom: 0,
-        }}
-      >
-        {stepValues.map((v) => {
-          const selected = value === v;
-          const size = selected ? selectedDotSize : dotSize;
-          return (
-            <Pressable
-              key={v}
-              onPress={() => handlePress(v)}
+      {/* Dots: first left edge at 0, last right edge at barWidth, rest evenly between */}
+      {stepValues.map((v, i) => {
+        const selected = value === v;
+        const size = selected ? selectedDotSize : dotSize;
+        const dotLeft =
+          barWidth > 0 && n > 1 ? (barWidth - size) * (i / (n - 1)) : 0;
+        const pressableLeft = dotLeft - dotHitPadding / 2;
+        return (
+          <Pressable
+            key={v}
+            onPress={() => handlePress(v)}
+            style={{
+              position: "absolute",
+              left: pressableLeft,
+              top: 0,
+              width: size + dotHitPadding,
+              height: barHeight,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            hitSlop={4}
+          >
+            <View
               style={{
-                width: selectedDotSize + dotHitPadding,
-                height: barHeight,
-                alignItems: "center",
-                justifyContent: "center",
+                width: size,
+                height: size,
+                borderRadius: size / 2,
+                backgroundColor: selected
+                  ? APP_COLORS.milestoneDotSelected
+                  : APP_COLORS.milestoneDot,
               }}
-              hitSlop={4}
-            >
-              <View
-                style={{
-                  width: size,
-                  height: size,
-                  borderRadius: size / 2,
-                  backgroundColor: selected
-                    ? APP_COLORS.milestoneDotSelected
-                    : APP_COLORS.milestoneDot,
-                }}
-              />
-            </Pressable>
-          );
-        })}
-      </View>
+            />
+          </Pressable>
+        );
+      })}
     </View>
   );
 }
@@ -416,9 +417,11 @@ function ExerciseCard({
     const scale = clamp(viewportWidth / 390, 0.85, 1.25);
     return {
       sidePadding: Math.round(16 * scale),
+      weightRowGap: Math.max(4, Math.round(8 * scale)),
+      setRowTightGap: Math.max(2, Math.round(8 * scale)),
       controlHeight: Math.round(44 * scale),
       controlRadius: Math.round(24 * scale),
-      controlBorderWidth: Math.max(1, Math.round(2 * scale)),
+      controlBorderWidth: Math.max(1, Math.round(1 * scale)),
       milestoneBarHeight: Math.round(44 * scale),
       milestoneTrackHeight: Math.max(2, Math.round(5 * scale)),
       milestoneDotSize: Math.max(6, Math.round(10 * scale)),
@@ -562,7 +565,7 @@ function ExerciseCard({
   const lastLine =
     lastEntry && (lastEntry.top_reps != null || lastEntry.back_reps != null)
       ? `${formatLogLine(lastEntry)}`
-      : "No data";
+      : "No record";
 
   const readyToUpgrade = React.useMemo(() => {
     return (
@@ -698,18 +701,17 @@ function ExerciseCard({
                 <ActivityIndicator />
               ) : (
                 <View>
-                  <View style={fillContainer ? { marginBottom: 0 } : {}}>
+                  <View style={{ marginBottom: relativeUi.setRowTightGap }}>
                     <View
                       style={{
                         flexDirection: "row",
-                        gap: 0,
+                        gap: relativeUi.weightRowGap,
                         alignItems: "flex-end",
-                        justifyContent: "space-between",
                       }}
                     >
                       <View
                         style={{
-                          width: "26%",
+                          flex: 26,
                           minWidth: 0,
                           justifyContent: "center",
                         }}
@@ -760,10 +762,7 @@ function ExerciseCard({
                       ].map(([delta, label]) => (
                         <View
                           key={String(delta)}
-                          style={{
-                            width: "16%",
-                            minWidth: 0,
-                          }}
+                          style={{ flex: 13.5, minWidth: 0 }}
                         >
                           <Pressable
                             onPress={() =>
@@ -782,7 +781,7 @@ function ExerciseCard({
                             }}
                           >
                             <Text
-                              variant="labelLarge"
+                              variant="labelSmall"
                               style={{ textAlign: "center" }}
                             >
                               {label}
@@ -790,12 +789,7 @@ function ExerciseCard({
                           </Pressable>
                         </View>
                       ))}
-                      <View
-                        style={{
-                          width: "26%",
-                          minWidth: 0,
-                        }}
-                      >
+                      <View style={{ flex: 26, minWidth: 0 }}>
                         <Button
                           mode="contained"
                           onPress={onSave}
@@ -813,14 +807,19 @@ function ExerciseCard({
 
                   <View
                     style={[
-                      fillContainer ? { marginBottom: 0 } : {},
-                      { flexDirection: "row", alignItems: "center", gap: 10 },
+                      {
+                        flexDirection: "row",
+                        alignItems: "center",
+                        marginBottom: -relativeUi.setRowTightGap,
+                      },
                     ]}
                   >
-                    <Text variant="labelMedium" style={{ minWidth: 48 }}>
-                      Set 1
-                    </Text>
-                    <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={{ width: "15%", justifyContent: "center" }}>
+                      <Text variant="labelMedium" numberOfLines={1}>
+                        Set 1
+                      </Text>
+                    </View>
+                    <View style={{ width: "70%", minWidth: 0 }}>
                       <MilestoneBar
                         min={scheme.min}
                         max={scheme.max}
@@ -834,24 +833,40 @@ function ExerciseCard({
                         dotHitPadding={relativeUi.milestoneDotHitPadding}
                       />
                     </View>
-                    <Text
-                      variant="bodyLarge"
-                      style={{ minWidth: 28, textAlign: "right" }}
+                    <View
+                      style={{
+                        width: "15%",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                      }}
                     >
-                      {Math.round(set1)}
-                    </Text>
+                      <View
+                        style={{
+                          flex: 1,
+                          flexDirection: "row",
+                          justifyContent: "flex-end",
+                          minWidth: 0,
+                        }}
+                      >
+                        <Text variant="labelMedium" numberOfLines={1}>
+                          {Math.round(set1)}
+                        </Text>
+                      </View>
+                      <Text variant="labelMedium" numberOfLines={1}>
+                        {" "}
+                        {scheme.unitShort === "sec" ? "sec" : "Reps"}
+                      </Text>
+                    </View>
                   </View>
 
-                  <View
-                    style={[
-                      fillContainer ? { marginBottom: 0 } : {},
-                      { flexDirection: "row", alignItems: "center", gap: 10 },
-                    ]}
-                  >
-                    <Text variant="labelMedium" style={{ minWidth: 48 }}>
-                      Set 2
-                    </Text>
-                    <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <View style={{ width: "15%", justifyContent: "center" }}>
+                      <Text variant="labelMedium" numberOfLines={1}>
+                        Set 2
+                      </Text>
+                    </View>
+                    <View style={{ width: "70%", minWidth: 0 }}>
                       <MilestoneBar
                         min={scheme.min}
                         max={scheme.max}
@@ -865,12 +880,31 @@ function ExerciseCard({
                         dotHitPadding={relativeUi.milestoneDotHitPadding}
                       />
                     </View>
-                    <Text
-                      variant="bodyLarge"
-                      style={{ minWidth: 28, textAlign: "right" }}
+                    <View
+                      style={{
+                        width: "15%",
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                      }}
                     >
-                      {Math.round(set2)}
-                    </Text>
+                      <View
+                        style={{
+                          flex: 1,
+                          flexDirection: "row",
+                          justifyContent: "flex-end",
+                          minWidth: 0,
+                        }}
+                      >
+                        <Text variant="labelMedium" numberOfLines={1}>
+                          {Math.round(set2)}
+                        </Text>
+                      </View>
+                      <Text variant="labelMedium" numberOfLines={1}>
+                        {" "}
+                        {scheme.unitShort === "sec" ? "sec" : "Reps"}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               )
@@ -1068,7 +1102,7 @@ function RoutineRoute() {
     [layoutScale],
   );
   const expandedWindowHeight = React.useMemo(
-    () => Math.max(140, Math.round(viewportHeight * 0.1)),
+    () => Math.max(148, Math.round(viewportHeight * 0.1)),
     [viewportHeight],
   );
 
@@ -1145,14 +1179,14 @@ function RoutineRoute() {
 
   const scrollContentStyle = React.useMemo(
     () => ({
-      paddingTop: pagePadding,
-      paddingLeft: pagePadding,
-      paddingRight: pagePadding,
-      paddingBottom: pagePadding,
+      paddingTop: GRID_PADDING,
+      paddingLeft: insets.left + GRID_PADDING,
+      paddingRight: insets.right + GRID_PADDING,
+      paddingBottom: insets.bottom + GRID_PADDING,
       gap: 12,
       flexGrow: 1,
     }),
-    [pagePadding],
+    [insets.left, insets.right, insets.bottom],
   );
 
   function openDay(dayIdx) {
