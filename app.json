@@ -6,16 +6,18 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
+    "splash": {
+      "backgroundColor": "#212121",
+      "resizeMode": "contain"
+    },
     "ios": {
       "supportsTablet": false
     },
     "android": {
       "package": "com.roman.gymlog",
       "adaptiveIcon": {
-        "backgroundColor": "#111827"
+        "backgroundColor": "#212121"
       }
     },
     "extra": {
