@@ -3,13 +3,13 @@ import {
   Animated,
   BackHandler,
   Easing,
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   useColorScheme,
+  useWindowDimensions,
   Vibration,
   View,
   PanResponder,
@@ -44,7 +44,7 @@ import {
   getLastExerciseEntry,
   initDatabase,
   startWorkout,
-} from "./src/db/database";
+} from "./db/database";
 
 // Layout constants
 const TOP_PADDING = 8;
@@ -91,10 +91,11 @@ const SPLIT = [
   {
     name: "DAY 1. CHEST / TRICEPS / CORE",
     exercises: [
-      "Flat Barbell Bench Press",
-      "High-To-Low Cable Fly",
-      "Cable Bar Overhead Extension",
-      "Cable Bar Pushdown",
+      "Barbell Bench Press (Flat)",
+      "Machine Dip (Chest Focused)",
+      "Cable Chest Fly (High To Low)",
+      "Cable Overhead Extension",
+      "Cable Pushdown",
       "Elbow Plank",
       "Hyperextension",
     ],
@@ -102,32 +103,35 @@ const SPLIT = [
   {
     name: "DAY 2. BACK / BICEPS / FOREARMS",
     exercises: [
-      "Overhand Grip Lat Pulldown",
-      "Chest-Supported Machine Row",
-      "EZ-Bar Curl",
-      "Cable Bar Curl",
-      "Unilateral Hammer Curl",
-      "Behind-Back Wrist Curl",
+      "Lat Pulldown (Wide Overhand Grip)",
+      "Cable Row (Narrow Neutral Grip)",
+      "Machine Row (Wide Overhand Grip)",
+      "EZ-Bar Curl (Strict)",
+      "Cable Curl (Face-Away)",
+      "Cable Hammer Curl",
+      "Cable Wrist Curl (Face-Away)",
     ],
   },
   {
-    name: "DAY 3. SHOULDERS / LEGS / ABS",
+    name: "DAY 3. LEGS / SHOULDERS / ABS",
     exercises: [
-      "Dumbbell Shoulder Press",
-      "Unilateral Cable Lateral Raise",
       "Leg Extension",
-      "Seated Leg Curl",
-      "Ab Crunch",
-      "Lateral Ab Crunch",
+      "Leg Curl (Seated)",
+      "Machine Shoulder Press",
+      "Cable Lateral Raise (Unilateral)",
+      "Peck-Deck Rear Delt Fly",
+      "Machine Ab Crunch",
+      "Cable Side Ab Crunch",
     ],
   },
   {
     name: "DAY 4. CHEST / TRICEPS / CORE",
     exercises: [
-      "Incline Dumbbell Bench Press",
-      "Low-To-High Cable Fly",
-      "Cable Bar Overhead Extension",
-      "Cable Bar Pushdown",
+      "Dumbbell Bench Press (Incline)",
+      "Machine Dip (Chest Focused)",
+      "Cable Chest Fly (Low To High)",
+      "Cable Overhead Extension",
+      "Cable Pushdown",
       "Elbow Plank",
       "Hyperextension",
     ],
@@ -135,23 +139,25 @@ const SPLIT = [
   {
     name: "DAY 5. BACK / BICEPS / FOREARMS",
     exercises: [
-      "Neutral Grip Lat Pulldown",
-      "Cable Row",
-      "EZ-Bar Curl",
+      "Lat Pulldown (Medium Neutral Grip)",
+      "Machine Row (Unilateral Neutral Grip)",
+      "Cable Row (Wide Overhand Grip)",
+      "EZ-Bar Curl (Strict)",
       "Machine Preacher Curl",
-      "Unilateral Hammer Curl",
-      "Behind-Back Wrist Curl",
+      "Cable Hammer Curl",
+      "Cable Wrist Curl (Face-Away)",
     ],
   },
   {
-    name: "DAY 6. SHOULDERS / LEGS / ABS",
+    name: "DAY 6. LEGS / SHOULDERS / ABS",
     exercises: [
-      "Peck-Deck Rear Delt Fly",
-      "Dumbbell Shrugs",
       "Leg Extension",
-      "Seated Leg Curl",
-      "Ab Crunch",
-      "Lateral Ab Crunch",
+      "Leg Curl (Seated)",
+      "Machine Shoulder Press",
+      "Cable Lateral Raise (Unilateral)",
+      "Peck-Deck Rear Delt Fly",
+      "Machine Ab Crunch",
+      "Cable Side Ab Crunch",
     ],
   },
 ];
@@ -216,7 +222,7 @@ function getSchemeForExercise(exerciseName) {
   const name = String(exerciseName || "")
     .trim()
     .toLowerCase();
-  if (name === "flat barbell bench press")
+  if (name === "barbell bench press (flat)")
     return { min: 3, max: 6, step: 1, unitShort: "reps" };
   if (name === "elbow plank")
     return { min: 30, max: 120, step: 15, unitShort: "sec" };
@@ -282,7 +288,19 @@ const DOT_SIZE = 10;
 const SELECTED_DOT_SIZE = 20;
 const BAR_HEIGHT = 44;
 
-function MilestoneBar({ min, max, step, value, onValueChange, style }) {
+function MilestoneBar({
+  min,
+  max,
+  step,
+  value,
+  onValueChange,
+  style,
+  barHeight = BAR_HEIGHT,
+  trackHeight = TRACK_HEIGHT,
+  dotSize = DOT_SIZE,
+  selectedDotSize = SELECTED_DOT_SIZE,
+  dotHitPadding = 8,
+}) {
   const stepValues = React.useMemo(() => {
     const arr = [];
     for (let v = min; v <= max; v += step) arr.push(v);
@@ -297,19 +315,19 @@ function MilestoneBar({ min, max, step, value, onValueChange, style }) {
     [onValueChange],
   );
 
-  const edge = (SELECTED_DOT_SIZE + 8) / 2;
+  const edge = (selectedDotSize + dotHitPadding) / 2;
 
   return (
-    <View style={[{ height: BAR_HEIGHT, justifyContent: "center" }, style]}>
+    <View style={[{ height: barHeight, justifyContent: "center" }, style]}>
       {/* Track line: between first and last dot centers so no line outside ends */}
       <View
         style={{
           position: "absolute",
           left: edge,
           right: edge,
-          top: (BAR_HEIGHT - TRACK_HEIGHT) / 2,
-          height: TRACK_HEIGHT,
-          borderRadius: TRACK_HEIGHT / 2,
+          top: (barHeight - trackHeight) / 2,
+          height: trackHeight,
+          borderRadius: trackHeight / 2,
           backgroundColor: APP_COLORS.milestoneTrack,
         }}
       />
@@ -328,14 +346,14 @@ function MilestoneBar({ min, max, step, value, onValueChange, style }) {
       >
         {stepValues.map((v) => {
           const selected = value === v;
-          const size = selected ? SELECTED_DOT_SIZE : DOT_SIZE;
+          const size = selected ? selectedDotSize : dotSize;
           return (
             <Pressable
               key={v}
               onPress={() => handlePress(v)}
               style={{
-                width: SELECTED_DOT_SIZE + 8,
-                height: BAR_HEIGHT,
+                width: selectedDotSize + dotHitPadding,
+                height: barHeight,
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -369,7 +387,7 @@ function ExerciseCard({
   onOpenAdd,
   onOpenHistory,
   fillContainer,
-  contentHeight,
+  expandedWindowHeight,
   renderExpanded,
   onCollapseDone,
 }) {
@@ -380,7 +398,6 @@ function ExerciseCard({
   const [entries, setEntries] = React.useState([]);
   const expandAnim = React.useRef(new Animated.Value(expanded ? 1 : 0)).current;
   const wasExpandedRef = React.useRef(expanded);
-  const [headerHeight, setHeaderHeight] = React.useState(56);
 
   const scheme = React.useMemo(
     () => getSchemeForExercise(exerciseName),
@@ -392,6 +409,23 @@ function ExerciseCard({
   const [set2, setSet2] = React.useState(scheme.min);
   const [snack, setSnack] = React.useState({ visible: false, text: "" });
   const didInitAddFormRef = React.useRef(false);
+  const { width: viewportWidth } = useWindowDimensions();
+
+  const relativeUi = React.useMemo(() => {
+    // Keep current look as baseline around ~390pt width and scale proportionally.
+    const scale = clamp(viewportWidth / 390, 0.85, 1.25);
+    return {
+      sidePadding: Math.round(16 * scale),
+      controlHeight: Math.round(44 * scale),
+      controlRadius: Math.round(24 * scale),
+      controlBorderWidth: Math.max(1, Math.round(2 * scale)),
+      milestoneBarHeight: Math.round(44 * scale),
+      milestoneTrackHeight: Math.max(2, Math.round(5 * scale)),
+      milestoneDotSize: Math.max(6, Math.round(10 * scale)),
+      milestoneSelectedDotSize: Math.max(12, Math.round(20 * scale)),
+      milestoneDotHitPadding: Math.max(4, Math.round(8 * scale)),
+    };
+  }, [viewportWidth]);
 
   const weightSelection = React.useMemo(() => {
     // Keep the cursor/selection at the end so backspace/delete always works as expected.
@@ -538,24 +572,19 @@ function ExerciseCard({
   }, [lastEntry?.top_reps, lastEntry?.back_reps, scheme.max]);
 
   const contentContainerStyle = [
-    { paddingTop: 16, paddingRight: 16, paddingBottom: 16, paddingLeft: 16 },
+    {
+      paddingTop: 0,
+      paddingRight: relativeUi.sidePadding,
+      paddingBottom: 0,
+      paddingLeft: relativeUi.sidePadding,
+    },
     fillContainer && {
       flex: 1,
       minHeight: 0,
       justifyContent: "space-between",
-      ...(contentHeight != null && {
-        minHeight: Math.max(200, contentHeight - 80),
-      }),
     },
-    !fillContainer && { gap: 12 },
+    !fillContainer && { gap: 0 },
   ];
-
-  const expandedTargetHeight = React.useMemo(() => {
-    if (!renderExpanded) return 0;
-    if (contentHeight != null) return Math.max(0, contentHeight - headerHeight);
-    // Fallback (non-fillContainer scenarios).
-    return 320;
-  }, [contentHeight, headerHeight, renderExpanded]);
 
   React.useEffect(() => {
     // Manual animation (New Architecture safe). We animate the expanded content
@@ -583,7 +612,7 @@ function ExerciseCard({
     return () => {
       anim.stop();
     };
-  }, [expanded, expandAnim, onCollapseDone, expandedTargetHeight]);
+  }, [expanded, expandAnim, onCollapseDone]);
 
   return (
     <Surface
@@ -596,12 +625,6 @@ function ExerciseCard({
     >
       {/* Header row: icon, title, description (unclickable), Add button, History button */}
       <View
-        onLayout={(e) => {
-          const h = e?.nativeEvent?.layout?.height;
-          if (typeof h === "number" && Number.isFinite(h) && h > 0) {
-            setHeaderHeight(h);
-          }
-        }}
         style={{
           flexDirection: "row",
           alignItems: "center",
@@ -648,10 +671,7 @@ function ExerciseCard({
           style={[
             {
               overflow: "hidden",
-              height: expandAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, expandedTargetHeight],
-              }),
+              height: expandedWindowHeight,
               opacity: expandAnim,
             },
             {
@@ -666,9 +686,9 @@ function ExerciseCard({
             },
           ]}
         >
-          <View style={contentContainerStyle}>
+          <View style={[contentContainerStyle, { flex: 1, minHeight: 0 }]}>
             {workoutId == null ? (
-              <View style={{ paddingVertical: 12, alignItems: "center" }}>
+              <View style={{ paddingVertical: 0, alignItems: "center" }}>
                 <Text variant="bodySmall" style={{ opacity: 0.7 }}>
                   Starting workout…
                 </Text>
@@ -677,32 +697,39 @@ function ExerciseCard({
               loading ? (
                 <ActivityIndicator />
               ) : (
-                <>
-                  <View style={fillContainer ? { marginBottom: 8 } : {}}>
+                <View>
+                  <View style={fillContainer ? { marginBottom: 0 } : {}}>
                     <View
                       style={{
                         flexDirection: "row",
-                        gap: 12,
+                        gap: 0,
                         alignItems: "flex-end",
+                        justifyContent: "space-between",
                       }}
                     >
                       <View
                         style={{
-                          flex: 0.4,
+                          width: "26%",
                           minWidth: 0,
                           justifyContent: "center",
                         }}
                       >
                         <TextInput
                           mode="outlined"
-                          outlineStyle={{ borderRadius: 24, borderWidth: 2 }}
+                          outlineStyle={{
+                            borderRadius: relativeUi.controlRadius,
+                            borderWidth: relativeUi.controlBorderWidth,
+                          }}
                           style={{
                             width: "100%",
-                            height: 44,
+                            height: relativeUi.controlHeight,
                             backgroundColor: "transparent",
                             textAlign: "center",
                           }}
-                          contentStyle={{ height: 44, textAlign: "center" }}
+                          contentStyle={{
+                            height: relativeUi.controlHeight,
+                            textAlign: "center",
+                          }}
                           value={weight}
                           onChangeText={(text) => {
                             setWeight(text);
@@ -726,35 +753,31 @@ function ExerciseCard({
                           caretHidden
                         />
                       </View>
-                      <View
-                        style={{
-                          flex: 0.6,
-                          flexDirection: "row",
-                          gap: 8,
-                          minWidth: 0,
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        {[
-                          [1.25, "+1.25"],
-                          [2.5, "+2.5"],
-                          [5, "+5"],
-                        ].map(([delta, label]) => (
+                      {[
+                        [1.25, "+1.25"],
+                        [2.5, "+2.5"],
+                        [5, "+5"],
+                      ].map(([delta, label]) => (
+                        <View
+                          key={String(delta)}
+                          style={{
+                            width: "16%",
+                            minWidth: 0,
+                          }}
+                        >
                           <Pressable
-                            key={String(delta)}
                             onPress={() =>
                               setWeight((v) =>
                                 bumpNumber(v, delta, { min: 0, decimals: 2 }),
                               )
                             }
                             style={{
-                              flex: 1,
-                              height: 44,
-                              borderRadius: 24,
+                              width: "100%",
+                              height: relativeUi.controlHeight,
+                              borderRadius: relativeUi.controlRadius,
                               justifyContent: "center",
                               alignItems: "center",
-                              borderWidth: 2,
+                              borderWidth: relativeUi.controlBorderWidth,
                               borderColor: colors.outline,
                             }}
                           >
@@ -765,7 +788,25 @@ function ExerciseCard({
                               {label}
                             </Text>
                           </Pressable>
-                        ))}
+                        </View>
+                      ))}
+                      <View
+                        style={{
+                          width: "26%",
+                          minWidth: 0,
+                        }}
+                      >
+                        <Button
+                          mode="contained"
+                          onPress={onSave}
+                          style={{
+                            height: relativeUi.controlHeight,
+                            borderRadius: relativeUi.controlRadius,
+                          }}
+                          contentStyle={{ height: relativeUi.controlHeight }}
+                        >
+                          SAVE
+                        </Button>
                       </View>
                     </View>
                   </View>
@@ -786,6 +827,11 @@ function ExerciseCard({
                         step={scheme.step}
                         value={set1}
                         onValueChange={setSet1}
+                        barHeight={relativeUi.milestoneBarHeight}
+                        trackHeight={relativeUi.milestoneTrackHeight}
+                        dotSize={relativeUi.milestoneDotSize}
+                        selectedDotSize={relativeUi.milestoneSelectedDotSize}
+                        dotHitPadding={relativeUi.milestoneDotHitPadding}
                       />
                     </View>
                     <Text
@@ -798,7 +844,7 @@ function ExerciseCard({
 
                   <View
                     style={[
-                      fillContainer ? { marginBottom: 8 } : {},
+                      fillContainer ? { marginBottom: 0 } : {},
                       { flexDirection: "row", alignItems: "center", gap: 10 },
                     ]}
                   >
@@ -812,6 +858,11 @@ function ExerciseCard({
                         step={scheme.step}
                         value={set2}
                         onValueChange={setSet2}
+                        barHeight={relativeUi.milestoneBarHeight}
+                        trackHeight={relativeUi.milestoneTrackHeight}
+                        dotSize={relativeUi.milestoneDotSize}
+                        selectedDotSize={relativeUi.milestoneSelectedDotSize}
+                        dotHitPadding={relativeUi.milestoneDotHitPadding}
                       />
                     </View>
                     <Text
@@ -821,13 +872,7 @@ function ExerciseCard({
                       {Math.round(set2)}
                     </Text>
                   </View>
-
-                  <View style={fillContainer ? { marginBottom: 0 } : {}}>
-                    <Button mode="contained" onPress={onSave}>
-                      SAVE
-                    </Button>
-                  </View>
-                </>
+                </View>
               )
             ) : /* History mode */
             loading ? (
@@ -862,7 +907,7 @@ function ExerciseCard({
                       key={c.key}
                       style={{
                         flex: c.flex,
-                        paddingVertical: 8,
+                        paddingVertical: 0,
                         paddingHorizontal: 8,
                         borderRightWidth:
                           idx < 3 ? StyleSheet.hairlineWidth : 0,
@@ -888,7 +933,7 @@ function ExerciseCard({
                 {/* Scrollable rows */}
                 <ScrollView
                   style={{ flex: 1, minHeight: 0 }}
-                  contentContainerStyle={{ paddingBottom: 4 }}
+                  contentContainerStyle={{ paddingBottom: 0 }}
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
                 >
@@ -907,7 +952,7 @@ function ExerciseCard({
                         <View
                           style={{
                             flex: 1.05,
-                            paddingVertical: 8,
+                            paddingVertical: 0,
                             paddingHorizontal: 8,
                             borderRightWidth: StyleSheet.hairlineWidth,
                             borderRightColor: colors.outlineVariant,
@@ -924,7 +969,7 @@ function ExerciseCard({
                         <View
                           style={{
                             flex: 0.85,
-                            paddingVertical: 8,
+                            paddingVertical: 0,
                             paddingHorizontal: 8,
                             borderRightWidth: StyleSheet.hairlineWidth,
                             borderRightColor: colors.outlineVariant,
@@ -941,7 +986,7 @@ function ExerciseCard({
                         <View
                           style={{
                             flex: 0.85,
-                            paddingVertical: 8,
+                            paddingVertical: 0,
                             paddingHorizontal: 8,
                             borderRightWidth: StyleSheet.hairlineWidth,
                             borderRightColor: colors.outlineVariant,
@@ -958,7 +1003,7 @@ function ExerciseCard({
                         <View
                           style={{
                             flex: 1.25,
-                            paddingVertical: 8,
+                            paddingVertical: 0,
                             paddingHorizontal: 8,
                           }}
                         >
@@ -1009,10 +1054,23 @@ function RoutineRoute() {
   const [closingExercise, setClosingExercise] = React.useState(null);
   const expandedExerciseName = expandedExercise?.name ?? null;
   const expandedMode = expandedExercise?.mode ?? "add";
-  const [expandedCardHeight, setExpandedCardHeight] = React.useState(0);
+  const { width: viewportWidth, height: viewportHeight } =
+    useWindowDimensions();
   const insets = useSafeAreaInsets();
   const theme = useTheme();
   const colors = React.useMemo(() => getAppColors(theme), [theme]);
+  const layoutScale = React.useMemo(
+    () => clamp(viewportWidth / 390, 0.85, 1.25),
+    [viewportWidth],
+  );
+  const pagePadding = React.useMemo(
+    () => Math.round(16 * layoutScale),
+    [layoutScale],
+  );
+  const expandedWindowHeight = React.useMemo(
+    () => Math.max(140, Math.round(viewportHeight * 0.1)),
+    [viewportHeight],
+  );
 
   const handleOpenAdd = React.useCallback(
     (exerciseName) => {
@@ -1087,14 +1145,14 @@ function RoutineRoute() {
 
   const scrollContentStyle = React.useMemo(
     () => ({
-      paddingTop: 12,
-      paddingLeft: insets.left + GRID_PADDING,
-      paddingRight: insets.right + GRID_PADDING,
-      paddingBottom: insets.bottom + GRID_PADDING,
+      paddingTop: pagePadding,
+      paddingLeft: pagePadding,
+      paddingRight: pagePadding,
+      paddingBottom: pagePadding,
       gap: 12,
       flexGrow: 1,
     }),
-    [insets],
+    [pagePadding],
   );
 
   function openDay(dayIdx) {
@@ -1137,12 +1195,13 @@ function RoutineRoute() {
   if (currentDayIndex === null) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.background }}>
-        <View
-          style={[contentStyle, { flexDirection: "row", gap: GRID_PADDING }]}
-        >
-          <View style={{ flex: 1, gap: GRID_PADDING }}>
+        <View style={[contentStyle, { flexDirection: "row" }]}>
+          <View style={{ width: "50%", paddingRight: GRID_PADDING / 2 }}>
             {[0, 1, 2].map((idx) => (
-              <View key={idx} style={{ flex: 1 }}>
+              <View
+                key={idx}
+                style={{ flex: 1, marginBottom: idx < 2 ? GRID_PADDING : 0 }}
+              >
                 <DayButton
                   dayIndex={idx}
                   title={SPLIT[idx].name}
@@ -1154,9 +1213,12 @@ function RoutineRoute() {
               </View>
             ))}
           </View>
-          <View style={{ flex: 1, gap: GRID_PADDING }}>
+          <View style={{ width: "50%", paddingLeft: GRID_PADDING / 2 }}>
             {[3, 4, 5].map((idx) => (
-              <View key={idx} style={{ flex: 1 }}>
+              <View
+                key={idx}
+                style={{ flex: 1, marginBottom: idx < 5 ? GRID_PADDING : 0 }}
+              >
                 <DayButton
                   dayIndex={idx}
                   title={SPLIT[idx].name}
@@ -1176,12 +1238,8 @@ function RoutineRoute() {
   const day = SPLIT[currentDayIndex];
   const subtitle = day.name.replace(/^DAY\s*\d+\s*\.?\s*/i, "").trim();
   const headerPadding = 16;
-
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    <View style={{ flex: 1 }}>
       <View style={{ flex: 1, backgroundColor: colors.background }}>
         <View style={fixedHeaderStyle}>
           <Pressable
@@ -1212,56 +1270,52 @@ function RoutineRoute() {
           </Pressable>
         </View>
 
-        <View style={[scrollContentStyle, { flex: 1, minHeight: 0 }]}>
+        <ScrollView
+          style={{ flex: 1, minHeight: 0 }}
+          contentContainerStyle={scrollContentStyle}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           {day.exercises.map((ex) => {
-          const isExpanded = expandedExerciseName === ex;
-          const isClosing = closingExercise?.name === ex;
-          const modeForCard = isExpanded
-            ? expandedMode
-            : isClosing
-              ? closingExercise.mode
-              : expandedMode;
-          return (
-            <View
-              key={ex}
-              style={{ flex: isExpanded || isClosing ? 1 : 0, minHeight: 0 }}
-              onLayout={
-                isExpanded || isClosing
-                  ? (e) => setExpandedCardHeight(e.nativeEvent.layout.height)
-                  : undefined
-              }
-            >
-              <ExerciseCard
-                workoutId={workoutId}
-                exerciseName={ex}
-                refreshToken={refreshToken}
-                onDidMutate={() => setRefreshToken((x) => x + 1)}
-                expanded={isExpanded}
-                expandedMode={modeForCard}
-                onOpenAdd={() => handleOpenAdd(ex)}
-                onOpenHistory={() => handleOpenHistory(ex)}
-                fillContainer={isExpanded || isClosing}
-                contentHeight={
-                  isExpanded || isClosing ? expandedCardHeight : undefined
-                }
-                renderExpanded={isExpanded || isClosing}
-                onCollapseDone={
-                  isClosing
-                    ? () => {
-                        // Only clear if this card is still the one closing.
-                        setClosingExercise((cur) =>
-                          cur?.name === ex ? null : cur,
-                        );
-                      }
-                    : undefined
-                }
-              />
-            </View>
-          );
-        })}
-        </View>
+            const isExpanded = expandedExerciseName === ex;
+            const isClosing = closingExercise?.name === ex;
+            const isActiveCard = isExpanded || isClosing;
+            const modeForCard = isExpanded
+              ? expandedMode
+              : isClosing
+                ? closingExercise.mode
+                : expandedMode;
+            return (
+              <View key={ex} style={{ minHeight: 0 }}>
+                <ExerciseCard
+                  workoutId={workoutId}
+                  exerciseName={ex}
+                  refreshToken={refreshToken}
+                  onDidMutate={() => setRefreshToken((x) => x + 1)}
+                  expanded={isExpanded}
+                  expandedMode={modeForCard}
+                  onOpenAdd={() => handleOpenAdd(ex)}
+                  onOpenHistory={() => handleOpenHistory(ex)}
+                  fillContainer={false}
+                  expandedWindowHeight={expandedWindowHeight}
+                  renderExpanded={isActiveCard}
+                  onCollapseDone={
+                    isClosing
+                      ? () => {
+                          // Only clear if this card is still the one closing.
+                          setClosingExercise((cur) =>
+                            cur?.name === ex ? null : cur,
+                          );
+                        }
+                      : undefined
+                  }
+                />
+              </View>
+            );
+          })}
+        </ScrollView>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
