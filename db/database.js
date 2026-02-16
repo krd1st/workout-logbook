@@ -65,6 +65,15 @@ export async function initDatabase() {
       fat REAL NOT NULL DEFAULT 80
     );
     INSERT OR IGNORE INTO nutrition_quota (id, calories, protein, carbs, fat) VALUES (1, 2500, 150, 300, 80);
+
+    CREATE TABLE IF NOT EXISTS saved_foods (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      calories REAL NOT NULL DEFAULT 0,
+      protein REAL NOT NULL DEFAULT 0,
+      carbs REAL NOT NULL DEFAULT 0,
+      fat REAL NOT NULL DEFAULT 0
+    );
   `);
 
   // Migration for older installs (before `unit` existed).
@@ -264,5 +273,35 @@ export async function setNutritionQuota({ calories, protein, carbs, fat }) {
       Number(fat) ?? 80,
     ],
   );
+}
+
+// --- Saved Foods ---
+export async function addSavedFood({ name, calories = 0, protein = 0, carbs = 0, fat = 0 }) {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO saved_foods (name, calories, protein, carbs, fat) VALUES (?, ?, ?, ?, ?);`,
+    [String(name).trim(), Number(calories) || 0, Number(protein) || 0, Number(carbs) || 0, Number(fat) || 0],
+  );
+}
+
+export async function getSavedFoods() {
+  const db = await getDb();
+  const rows = await db.getAllAsync(
+    `SELECT id, name, calories, protein, carbs, fat FROM saved_foods ORDER BY id DESC;`,
+    [],
+  );
+  return (rows || []).map((r) => ({
+    id: r.id,
+    name: r.name ?? "",
+    calories: r.calories ?? 0,
+    protein: r.protein ?? 0,
+    carbs: r.carbs ?? 0,
+    fat: r.fat ?? 0,
+  }));
+}
+
+export async function deleteSavedFood(id) {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM saved_foods WHERE id = ?;`, [id]);
 }
 
