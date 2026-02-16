@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Gym Log Book",
-    "slug": "gym-log-book",
-    "scheme": "gymlogbook",
+    "name": "Logbook",
+    "slug": "logbook",
+    "scheme": "logbook",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
@@ -15,15 +15,13 @@
       "supportsTablet": false
     },
     "android": {
-      "package": "com.roman.gymlog",
+      "package": "com.krd1st.logbook",
       "adaptiveIcon": {
         "backgroundColor": "#212121"
       }
     },
     "extra": {
-      "eas": {
-        "projectId": "1ca55ec3-69c7-4071-a0d1-e7a5299fc9ae"
-      }
+      "eas": {}
     }
   }
 }
