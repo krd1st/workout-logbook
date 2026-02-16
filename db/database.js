@@ -69,6 +69,7 @@ export async function initDatabase() {
 
   // Migration for older installs (before `unit` existed).
   await ensureColumnExists({ tableName: 'logs', columnName: 'unit', columnDDL: "unit TEXT NOT NULL DEFAULT 'kg'" });
+  await ensureColumnExists({ tableName: 'nutrition_logs', columnName: 'food_name', columnDDL: "food_name TEXT DEFAULT ''" });
 }
 
 export async function getActiveWorkout() {
@@ -184,6 +185,33 @@ export async function addNutritionLog({ date, calories = 0, protein = 0, carbs =
     `INSERT INTO nutrition_logs (date, calories, protein, carbs, fat) VALUES (?, ?, ?, ?, ?);`,
     [date, Number(calories) || 0, Number(protein) || 0, Number(carbs) || 0, Number(fat) || 0],
   );
+}
+
+export async function getNutritionLogsForDate(date) {
+  const db = await getDb();
+  const rows = await db.getAllAsync(
+    `SELECT id, date, calories, protein, carbs, fat, food_name FROM nutrition_logs WHERE date = ? ORDER BY id DESC;`,
+    [date],
+  );
+  return (rows || []).map((r) => ({
+    id: r.id,
+    date: r.date,
+    calories: r.calories ?? 0,
+    protein: r.protein ?? 0,
+    carbs: r.carbs ?? 0,
+    fat: r.fat ?? 0,
+    foodName: r.food_name ?? "",
+  }));
+}
+
+export async function deleteNutritionLog(id) {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM nutrition_logs WHERE id = ?;`, [id]);
+}
+
+export async function updateNutritionLogFoodName(id, foodName) {
+  const db = await getDb();
+  await db.runAsync(`UPDATE nutrition_logs SET food_name = ? WHERE id = ?;`, [String(foodName ?? "").trim(), id]);
 }
 
 export async function getNutritionTotalsForDate(date) {
