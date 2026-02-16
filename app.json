@@ -6,7 +6,9 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "splash": {
       "backgroundColor": "#212121",
       "resizeMode": "contain"
@@ -21,7 +23,10 @@
       }
     },
     "extra": {
-      "eas": {}
-    }
+      "eas": {
+        "projectId": "696cc009-bf7f-42cb-a418-5909651b8fbd"
+      }
+    },
+    "owner": "krd1st"
   }
 }
