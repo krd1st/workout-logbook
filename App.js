@@ -1,8 +1,10 @@
 import * as React from "react";
 import {
   Animated,
+  AppState,
   BackHandler,
   Easing,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -45,13 +47,16 @@ import {
   addLog,
   addNutritionLog,
   deleteExerciseEntry,
+  deleteNutritionLog,
   getExerciseEntries,
   getLastExerciseEntry,
+  getNutritionLogsForDate,
   getNutritionQuota,
   getNutritionTotalsForDate,
   initDatabase,
   setNutritionQuota,
   startWorkout,
+  updateNutritionLogFoodName,
 } from "./db/database";
 
 // Layout constants
@@ -1059,9 +1064,10 @@ function ExerciseCard({
                         </View>
 
                         <IconButton
-                          icon="trash-can-outline"
+                          icon="delete-outline"
                           size={20}
                           onPress={() => onDelete(e.date)}
+                          mode="text"
                           style={{ width: 40, margin: 0 }}
                           iconColor={colors.error}
                           hitSlop={12}
@@ -1096,9 +1102,14 @@ function CenteredNutritionInput({
   controlBorderWidth,
   placeholderColor,
   outlineColor,
+  keyboardType = "decimal-pad",
 }) {
   const showPlaceholder = !value || String(value).trim() === "";
   const theme = useTheme();
+  const [focused, setFocused] = React.useState(false);
+  const borderColor = focused
+    ? theme.colors.primary
+    : outlineColor || theme.colors.outline;
   return (
     <View
       style={{
@@ -1106,7 +1117,7 @@ function CenteredNutritionInput({
         height: controlHeight,
         borderRadius: controlRadius,
         borderWidth: controlBorderWidth,
-        borderColor: outlineColor || theme.colors.outline,
+        borderColor,
         overflow: "hidden",
         justifyContent: "center",
       }}
@@ -1114,8 +1125,10 @@ function CenteredNutritionInput({
       <NativeTextInput
         value={value}
         onChangeText={onChangeText}
-        keyboardType="decimal-pad"
-        caretHidden
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        keyboardType={keyboardType}
+        caretHidden={keyboardType === "decimal-pad"}
         style={{
           width: "100%",
           height: "100%",
@@ -1145,16 +1158,21 @@ function NutritionSection() {
       controlRadius: Math.round(24 * scale),
       controlBorderWidth: Math.max(1, Math.round(1 * scale)),
       rowGap: Math.max(4, Math.round(8 * scale)),
+      // Gap between numbers row and inputs row (tweak the 8 for bigger/smaller)
+      numbersToInputsGap: Math.max(4, Math.round(16 * scale)),
     };
   }, [viewportWidth]);
+  // 1.5 × one day button height (same formula as day grid row)
   const blockMinHeight = React.useMemo(() => {
     const topSectionHeight = viewportHeight * 0.5;
     const headerEstimate = 120;
     const contentHeight = Math.max(0, topSectionHeight - headerEstimate);
     const oneRowHeight = (contentHeight - 2 * GRID_PADDING) / 3;
-    return Math.round(2 * oneRowHeight + GRID_PADDING);
+    return Math.round(oneRowHeight * 1.5);
   }, [viewportHeight]);
-  const today = React.useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [today, setToday] = React.useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [totals, setTotals] = React.useState({
     calories: 0,
     protein: 0,
@@ -1172,6 +1190,26 @@ function NutritionSection() {
   const [carbs, setCarbs] = React.useState("");
   const [fat, setFat] = React.useState("");
   const [isEditingQuota, setIsEditingQuota] = React.useState(false);
+  const [namingEntryId, setNamingEntryId] = React.useState(null);
+  const [foodName, setFoodName] = React.useState("");
+  const [keyboardHeight, setKeyboardHeight] = React.useState(0);
+
+  React.useEffect(() => {
+    const show = (e) => setKeyboardHeight(e.endCoordinates.height);
+    const hide = () => setKeyboardHeight(0);
+    const subShow = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      show
+    );
+    const subHide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      hide
+    );
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, []);
 
   const loadTotals = React.useCallback(async () => {
     const t = await getNutritionTotalsForDate(today);
@@ -1183,6 +1221,12 @@ function NutritionSection() {
     setQuota(q);
   }, []);
 
+  const [logEntries, setLogEntries] = React.useState([]);
+  const loadLogEntries = React.useCallback(async () => {
+    const list = await getNutritionLogsForDate(today);
+    setLogEntries(list);
+  }, [today]);
+
   React.useEffect(() => {
     loadTotals();
   }, [loadTotals]);
@@ -1190,6 +1234,29 @@ function NutritionSection() {
   React.useEffect(() => {
     loadQuota();
   }, [loadQuota]);
+
+  React.useEffect(() => {
+    loadLogEntries();
+  }, [loadLogEntries]);
+
+  // When the phone date becomes a new day, switch to that day so totals and log list show fresh data
+  React.useEffect(() => {
+    const checkNewDay = () => {
+      const now = new Date().toISOString().slice(0, 10);
+      if (now !== today) {
+        setToday(now);
+      }
+    };
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") checkNewDay();
+    });
+    checkNewDay();
+    const interval = setInterval(checkNewDay, 60 * 1000);
+    return () => {
+      sub.remove();
+      clearInterval(interval);
+    };
+  }, [today]);
 
   // --- Nutrition calculator logic ---
   const CAL_PER_P = 4;
@@ -1272,10 +1339,19 @@ function NutritionSection() {
   // Validation: non-negative; when all 4 given, calories within tolerance of macro-derived (both ways).
   const isValid = React.useMemo(() => {
     if (!resolved) return false;
-    const { calories: rc, protein: rp, carbs: rcb, fat: rf, _macroCal } = resolved;
+    const {
+      calories: rc,
+      protein: rp,
+      carbs: rcb,
+      fat: rf,
+      _macroCal,
+    } = resolved;
     if (rc < 0 || rp < 0 || rcb < 0 || rf < 0) return false;
     if (filledCount === 4 && _macroCal != null) {
-      const tolerance = Math.max(CAL_TOLERANCE_ABS, _macroCal * CAL_TOLERANCE_PCT);
+      const tolerance = Math.max(
+        CAL_TOLERANCE_ABS,
+        _macroCal * CAL_TOLERANCE_PCT,
+      );
       if (Math.abs(cVal - _macroCal) > tolerance) return false;
     }
     return true;
@@ -1285,6 +1361,8 @@ function NutritionSection() {
   const showError = canSave && !isValid;
 
   const openQuotaEdit = React.useCallback(() => {
+    setNamingEntryId(null);
+    setFoodName("");
     setCalories(String(Math.round(quota.calories)));
     setProtein(String(Math.round(quota.protein)));
     setCarbs(String(Math.round(quota.carbs)));
@@ -1301,16 +1379,25 @@ function NutritionSection() {
   }, []);
 
   React.useEffect(() => {
-    if (!isEditingQuota) return;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      exitQuotaEdit();
-      return true;
-    });
+    const handleBack = () => {
+      if (namingEntryId != null) {
+        setNamingEntryId(null);
+        setFoodName("");
+        return true;
+      }
+      if (isEditingQuota) {
+        exitQuotaEdit();
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener("hardwareBackPress", handleBack);
     return () => sub.remove();
-  }, [isEditingQuota, exitQuotaEdit]);
+  }, [isEditingQuota, namingEntryId, exitQuotaEdit]);
 
   const handleLog = React.useCallback(async () => {
     if (!resolved || !isValid) return;
+    Keyboard.dismiss();
     const { _macroCal, ...toSave } = resolved;
     await addNutritionLog({
       date: today,
@@ -1324,21 +1411,32 @@ function NutritionSection() {
     setCarbs("");
     setFat("");
     loadTotals();
-  }, [today, resolved, isValid, loadTotals]);
+    loadLogEntries();
+  }, [today, resolved, isValid, loadTotals, loadLogEntries]);
 
   const handleSaveQuota = React.useCallback(async () => {
     if (!resolved || !isValid) return;
+    Keyboard.dismiss();
     const { _macroCal, ...toSave } = resolved;
     await setNutritionQuota(toSave);
     loadQuota();
     exitQuotaEdit();
   }, [resolved, isValid, loadQuota, exitQuotaEdit]);
 
+  const handleSaveFoodName = React.useCallback(async () => {
+    if (namingEntryId == null) return;
+    Keyboard.dismiss();
+    await updateNutritionLogFoodName(namingEntryId, foodName);
+    setNamingEntryId(null);
+    setFoodName("");
+    loadLogEntries();
+  }, [namingEntryId, foodName, loadLogEntries]);
+
   const padding = {
     paddingLeft: insets.left + GRID_PADDING,
     paddingRight: insets.right + GRID_PADDING,
     paddingBottom: insets.bottom + GRID_PADDING,
-    paddingTop: GRID_PADDING,
+    paddingTop: GRID_PADDING / 2,
   };
   const placeholderColor = theme.dark
     ? "rgba(255,255,255,0.4)"
@@ -1353,119 +1451,323 @@ function NutritionSection() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
-      <View style={[{ flex: 1 }, padding]}>
+      <View
+        style={[
+          { flex: 1, flexDirection: "column" },
+          padding,
+          keyboardHeight > 0 ? { paddingBottom: padding.paddingBottom + keyboardHeight } : {},
+        ]}
+      >
+          <Surface
+            elevation={1}
+            style={{
+            borderRadius: 16,
+            paddingHorizontal: 12,
+            paddingTop: 6,
+            paddingBottom: 12,
+            height: blockMinHeight,
+            minHeight: blockMinHeight,
+            alignSelf: "stretch",
+            justifyContent: "center",
+          }}
+        >
+          <View style={{ alignSelf: "stretch" }}>
+            <View style={rowLayout}>
+              {[
+                {
+                  key: "cal",
+                  current: totals.calories,
+                  target: quota.calories,
+                  flex: 26,
+                },
+                {
+                  key: "p",
+                  current: totals.protein,
+                  target: quota.protein,
+                  flex: 16,
+                },
+                {
+                  key: "c",
+                  current: totals.carbs,
+                  target: quota.carbs,
+                  flex: 16,
+                },
+                { key: "f", current: totals.fat, target: quota.fat, flex: 16 },
+              ].map(({ key, current, target, flex: f }) => (
+                <View
+                  key={key}
+                  style={[
+                    colFlex(f),
+                    { alignItems: "center", justifyContent: "center" },
+                  ]}
+                >
+                  <Text variant="titleMedium">{Math.round(current)}</Text>
+                  <View
+                    style={{
+                      width: "80%",
+                      height: 1,
+                      backgroundColor: colors.outline,
+                      marginVertical: 4,
+                    }}
+                  />
+                  <Text variant="labelMedium">{Math.round(target)}</Text>
+                </View>
+              ))}
+              <View
+                style={[
+                  colFlex(26),
+                  { alignItems: "center", justifyContent: "center" },
+                ]}
+              >
+                <IconButton
+                  icon="cog"
+                  size={24}
+                  onPress={() =>
+                    isEditingQuota ? exitQuotaEdit() : openQuotaEdit()
+                  }
+                  mode={isEditingQuota ? "contained" : "outlined"}
+                />
+              </View>
+            </View>
+            <View
+              style={[rowLayout, { marginTop: relativeUi.numbersToInputsGap }]}
+            >
+              {namingEntryId != null ? (
+                <>
+                  <View
+                    style={{
+                      flex: 82,
+                      minWidth: 0,
+                      marginRight: -3 * relativeUi.rowGap,
+                    }}
+                  >
+                    <CenteredNutritionInput
+                      value={foodName}
+                      onChangeText={setFoodName}
+                      placeholder="Food name"
+                      controlHeight={relativeUi.controlHeight}
+                      controlRadius={relativeUi.controlRadius}
+                      controlBorderWidth={relativeUi.controlBorderWidth}
+                      placeholderColor={placeholderColor}
+                      outlineColor={colors.outline}
+                      keyboardType="default"
+                    />
+                  </View>
+                  <View style={colFlex(0)} />
+                  <View style={colFlex(0)} />
+                  <View style={colFlex(0)} />
+                </>
+              ) : (
+                <>
+                  <View style={colFlex(26)}>
+                    <CenteredNutritionInput
+                      value={calories}
+                      onChangeText={setCalories}
+                      placeholder="Cal"
+                      controlHeight={relativeUi.controlHeight}
+                      controlRadius={relativeUi.controlRadius}
+                      controlBorderWidth={relativeUi.controlBorderWidth}
+                      placeholderColor={placeholderColor}
+                      outlineColor={colors.outline}
+                    />
+                  </View>
+                  <View style={colFlex(16)}>
+                    <CenteredNutritionInput
+                      value={protein}
+                      onChangeText={setProtein}
+                      placeholder="P"
+                      controlHeight={relativeUi.controlHeight}
+                      controlRadius={relativeUi.controlRadius}
+                      controlBorderWidth={relativeUi.controlBorderWidth}
+                      placeholderColor={placeholderColor}
+                      outlineColor={colors.outline}
+                    />
+                  </View>
+                  <View style={colFlex(16)}>
+                    <CenteredNutritionInput
+                      value={carbs}
+                      onChangeText={setCarbs}
+                      placeholder="C"
+                      controlHeight={relativeUi.controlHeight}
+                      controlRadius={relativeUi.controlRadius}
+                      controlBorderWidth={relativeUi.controlBorderWidth}
+                      placeholderColor={placeholderColor}
+                      outlineColor={colors.outline}
+                    />
+                  </View>
+                  <View style={colFlex(16)}>
+                    <CenteredNutritionInput
+                      value={fat}
+                      onChangeText={setFat}
+                      placeholder="F"
+                      controlHeight={relativeUi.controlHeight}
+                      controlRadius={relativeUi.controlRadius}
+                      controlBorderWidth={relativeUi.controlBorderWidth}
+                      placeholderColor={placeholderColor}
+                      outlineColor={colors.outline}
+                    />
+                  </View>
+                </>
+              )}
+              <View style={colFlex(26)}>
+                <Button
+                  mode="contained"
+                  onPress={
+                    isEditingQuota
+                      ? handleSaveQuota
+                      : namingEntryId != null
+                        ? handleSaveFoodName
+                        : handleLog
+                  }
+                  disabled={
+                    namingEntryId != null ? false : !canSave || showError
+                  }
+                  buttonColor={showError ? "#d32f2f" : undefined}
+                  style={{
+                    width: "100%",
+                    height: relativeUi.controlHeight,
+                    borderRadius: relativeUi.controlRadius,
+                  }}
+                  contentStyle={{
+                    height: relativeUi.controlHeight,
+                    flexShrink: 0,
+                  }}
+                  labelStyle={{ flexShrink: 0 }}
+                >
+                  {showError
+                    ? "X"
+                    : isEditingQuota
+                      ? "SAVE"
+                      : namingEntryId != null
+                        ? "SAVE"
+                        : "LOG"}
+                </Button>
+              </View>
+            </View>
+          </View>
+        </Surface>
         <Surface
           elevation={1}
           style={{
+            flex: 1,
+            minHeight: 0,
+            marginTop: GRID_PADDING,
             borderRadius: 16,
             padding: 12,
-            paddingVertical: 10,
-            minHeight: blockMinHeight,
-            justifyContent: "flex-start",
+            overflow: "hidden",
           }}
         >
-          <View style={rowLayout}>
-            {[
-              { key: "cal", current: totals.calories, target: quota.calories, flex: 26 },
-              { key: "p", current: totals.protein, target: quota.protein, flex: 16 },
-              { key: "c", current: totals.carbs, target: quota.carbs, flex: 16 },
-              { key: "f", current: totals.fat, target: quota.fat, flex: 16 },
-            ].map(({ key, current, target, flex: f }) => (
-              <View
-                key={key}
-                style={[colFlex(f), { alignItems: "center", justifyContent: "center" }]}
-              >
-                <Text variant="titleMedium">{Math.round(current)}</Text>
-                <View
-                  style={{
-                    width: "80%",
-                    height: 1,
-                    backgroundColor: colors.outline,
-                    marginVertical: 4,
-                  }}
-                />
-                <Text variant="labelMedium">{Math.round(target)}</Text>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingRight: 4, flexGrow: 1 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {logEntries.length === 0 ? (
+              <View style={{ paddingVertical: 12, alignItems: "center" }}>
+                <Text variant="bodySmall" style={{ opacity: 0.6 }}>
+                  No entries today
+                </Text>
               </View>
-            ))}
-            <View style={[colFlex(26), { alignItems: "center", justifyContent: "center" }]}>
-              <IconButton
-                icon="cog"
-                size={24}
-                onPress={() => (isEditingQuota ? exitQuotaEdit() : openQuotaEdit())}
-                mode={isEditingQuota ? "contained" : "outlined"}
-              />
-            </View>
-          </View>
-          <View style={[rowLayout, { marginTop: 6 }]}>
-            <View style={colFlex(26)}>
-              <CenteredNutritionInput
-                value={calories}
-                onChangeText={setCalories}
-                placeholder="Cal"
-                controlHeight={relativeUi.controlHeight}
-                controlRadius={relativeUi.controlRadius}
-                controlBorderWidth={relativeUi.controlBorderWidth}
-                placeholderColor={placeholderColor}
-                outlineColor={colors.outline}
-              />
-            </View>
-            <View style={colFlex(16)}>
-              <CenteredNutritionInput
-                value={protein}
-                onChangeText={setProtein}
-                placeholder="P"
-                controlHeight={relativeUi.controlHeight}
-                controlRadius={relativeUi.controlRadius}
-                controlBorderWidth={relativeUi.controlBorderWidth}
-                placeholderColor={placeholderColor}
-                outlineColor={colors.outline}
-              />
-            </View>
-            <View style={colFlex(16)}>
-              <CenteredNutritionInput
-                value={carbs}
-                onChangeText={setCarbs}
-                placeholder="C"
-                controlHeight={relativeUi.controlHeight}
-                controlRadius={relativeUi.controlRadius}
-                controlBorderWidth={relativeUi.controlBorderWidth}
-                placeholderColor={placeholderColor}
-                outlineColor={colors.outline}
-              />
-            </View>
-            <View style={colFlex(16)}>
-              <CenteredNutritionInput
-                value={fat}
-                onChangeText={setFat}
-                placeholder="F"
-                controlHeight={relativeUi.controlHeight}
-                controlRadius={relativeUi.controlRadius}
-                controlBorderWidth={relativeUi.controlBorderWidth}
-                placeholderColor={placeholderColor}
-                outlineColor={colors.outline}
-              />
-            </View>
-            <View style={colFlex(26)}>
-              <Button
-                mode="contained"
-                onPress={isEditingQuota ? handleSaveQuota : handleLog}
-                disabled={!canSave || showError}
-                buttonColor={showError ? "#d32f2f" : undefined}
-                style={{
-                  width: "100%",
-                  height: relativeUi.controlHeight,
-                  borderRadius: relativeUi.controlRadius,
-                }}
-                contentStyle={{
-                  height: relativeUi.controlHeight,
-                  flexShrink: 0,
-                }}
-                labelStyle={{ flexShrink: 0 }}
-              >
-                {showError ? "X" : isEditingQuota ? "SAVE" : "LOG"}
-              </Button>
-            </View>
-          </View>
+            ) : (
+              logEntries.map((entry) => (
+                <View
+                  key={entry.id}
+                  style={[rowLayout, { paddingVertical: 6 }]}
+                >
+                  <View
+                    style={[
+                      colFlex(26),
+                      { alignItems: "center", justifyContent: "center" },
+                    ]}
+                  >
+                    <Text
+                      variant="bodySmall"
+                      numberOfLines={1}
+                      style={{ textAlign: "center", width: "100%" }}
+                    >
+                      {Math.round(entry.calories)}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      colFlex(16),
+                      { alignItems: "center", justifyContent: "center" },
+                    ]}
+                  >
+                    <Text
+                      variant="bodySmall"
+                      numberOfLines={1}
+                      style={{ textAlign: "center", width: "100%" }}
+                    >
+                      {Math.round(entry.protein)}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      colFlex(16),
+                      { alignItems: "center", justifyContent: "center" },
+                    ]}
+                  >
+                    <Text
+                      variant="bodySmall"
+                      numberOfLines={1}
+                      style={{ textAlign: "center", width: "100%" }}
+                    >
+                      {Math.round(entry.carbs)}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      colFlex(16),
+                      { alignItems: "center", justifyContent: "center" },
+                    ]}
+                  >
+                    <Text
+                      variant="bodySmall"
+                      numberOfLines={1}
+                      style={{ textAlign: "center", width: "100%" }}
+                    >
+                      {Math.round(entry.fat)}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      colFlex(26),
+                      {
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 4,
+                      },
+                    ]}
+                  >
+                    <IconButton
+                      icon="content-save"
+                      size={18}
+                      onPress={() => {
+                        setNamingEntryId(entry.id);
+                        setFoodName(entry.foodName ?? "");
+                      }}
+                      mode="text"
+                      style={{ margin: 0 }}
+                    />
+                    <IconButton
+                      icon="delete-outline"
+                      size={18}
+                      onPress={async () => {
+                        await deleteNutritionLog(entry.id);
+                        loadLogEntries();
+                        loadTotals();
+                      }}
+                      mode="text"
+                      style={{ margin: 0 }}
+                    />
+                  </View>
+                </View>
+              ))
+            )}
+          </ScrollView>
         </Surface>
       </View>
     </View>
@@ -1655,7 +1957,7 @@ function RoutineRoute({ dataReady = true }) {
                 paddingTop: GRID_PADDING,
                 paddingLeft: insets.left + GRID_PADDING,
                 paddingRight: insets.right + GRID_PADDING,
-                paddingBottom: insets.bottom + GRID_PADDING,
+                paddingBottom: insets.bottom + GRID_PADDING / 2,
                 flexDirection: "row",
               },
             ]}
