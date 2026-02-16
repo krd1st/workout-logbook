@@ -57,6 +57,9 @@ import {
   setNutritionQuota,
   startWorkout,
   updateNutritionLogFoodName,
+  addSavedFood,
+  getSavedFoods,
+  deleteSavedFood,
 } from "./db/database";
 
 // Layout constants
@@ -1065,10 +1068,10 @@ function ExerciseCard({
 
                         <IconButton
                           icon="delete-outline"
-                          size={20}
+                          size={16}
                           onPress={() => onDelete(e.date)}
                           mode="text"
-                          style={{ width: 40, margin: 0 }}
+                          style={{ width: 40, height: 24, margin: 0 }}
                           iconColor={colors.error}
                           hitSlop={12}
                         />
@@ -1199,11 +1202,11 @@ function NutritionSection() {
     const hide = () => setKeyboardHeight(0);
     const subShow = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      show
+      show,
     );
     const subHide = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      hide
+      hide,
     );
     return () => {
       subShow.remove();
@@ -1227,6 +1230,12 @@ function NutritionSection() {
     setLogEntries(list);
   }, [today]);
 
+  const [savedFoodsList, setSavedFoodsList] = React.useState([]);
+  const loadSavedFoods = React.useCallback(async () => {
+    const list = await getSavedFoods();
+    setSavedFoodsList(list);
+  }, []);
+
   React.useEffect(() => {
     loadTotals();
   }, [loadTotals]);
@@ -1238,6 +1247,10 @@ function NutritionSection() {
   React.useEffect(() => {
     loadLogEntries();
   }, [loadLogEntries]);
+
+  React.useEffect(() => {
+    loadSavedFoods();
+  }, [loadSavedFoods]);
 
   // When the phone date becomes a new day, switch to that day so totals and log list show fresh data
   React.useEffect(() => {
@@ -1427,10 +1440,21 @@ function NutritionSection() {
     if (namingEntryId == null) return;
     Keyboard.dismiss();
     await updateNutritionLogFoodName(namingEntryId, foodName);
+    const entry = logEntries.find((e) => e.id === namingEntryId);
+    if (entry && foodName.trim()) {
+      await addSavedFood({
+        name: foodName.trim(),
+        calories: entry.calories,
+        protein: entry.protein,
+        carbs: entry.carbs,
+        fat: entry.fat,
+      });
+      loadSavedFoods();
+    }
     setNamingEntryId(null);
     setFoodName("");
     loadLogEntries();
-  }, [namingEntryId, foodName, loadLogEntries]);
+  }, [namingEntryId, foodName, logEntries, loadLogEntries, loadSavedFoods]);
 
   const padding = {
     paddingLeft: insets.left + GRID_PADDING,
@@ -1449,18 +1473,20 @@ function NutritionSection() {
   };
   const colFlex = (n) => ({ flex: n, minWidth: 0 });
 
+  const translateY =
+    namingEntryId != null && keyboardHeight > 0 ? -keyboardHeight * 0.15 : 0;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface }}>
       <View
         style={[
-          { flex: 1, flexDirection: "column" },
+          { flex: 1, flexDirection: "column", transform: [{ translateY }] },
           padding,
-          keyboardHeight > 0 ? { paddingBottom: padding.paddingBottom + keyboardHeight } : {},
         ]}
       >
-          <Surface
-            elevation={1}
-            style={{
+        <Surface
+          elevation={1}
+          style={{
             borderRadius: 16,
             paddingHorizontal: 12,
             paddingTop: 6,
@@ -1646,129 +1672,219 @@ function NutritionSection() {
             </View>
           </View>
         </Surface>
-        <Surface
-          elevation={1}
+        <View
           style={{
             flex: 1,
             minHeight: 0,
             marginTop: GRID_PADDING,
-            borderRadius: 16,
-            padding: 12,
-            overflow: "hidden",
+            flexDirection: "column",
+            gap: GRID_PADDING,
           }}
         >
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingRight: 4, flexGrow: 1 }}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
+          <Surface
+            elevation={1}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              borderRadius: 16,
+              paddingHorizontal: 12,
+              paddingVertical: 4,
+              overflow: "hidden",
+            }}
           >
-            {logEntries.length === 0 ? (
-              <View style={{ paddingVertical: 12, alignItems: "center" }}>
-                <Text variant="bodySmall" style={{ opacity: 0.6 }}>
-                  No entries today
-                </Text>
-              </View>
-            ) : (
-              logEntries.map((entry) => (
-                <View
-                  key={entry.id}
-                  style={[rowLayout, { paddingVertical: 6 }]}
-                >
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingRight: 4, flexGrow: 1 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {logEntries.length === 0 ? (
+                <View style={{ paddingVertical: 8, alignItems: "center" }}>
+                  <Text variant="bodySmall" style={{ opacity: 0.6 }}>
+                    No entries today
+                  </Text>
+                </View>
+              ) : (
+                logEntries.map((entry) => (
                   <View
-                    style={[
-                      colFlex(26),
-                      { alignItems: "center", justifyContent: "center" },
-                    ]}
+                    key={entry.id}
+                    style={[rowLayout, { paddingVertical: 2 }]}
+                  >
+                    <View
+                      style={[
+                        colFlex(26),
+                        { alignItems: "center", justifyContent: "center" },
+                      ]}
+                    >
+                      <Text
+                        variant="bodySmall"
+                        numberOfLines={1}
+                        style={{ textAlign: "center", width: "100%" }}
+                      >
+                        {Math.round(entry.calories)}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        colFlex(16),
+                        {
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginLeft: 4,
+                        },
+                      ]}
+                    >
+                      <Text
+                        variant="bodySmall"
+                        numberOfLines={1}
+                        style={{ textAlign: "center", width: "100%" }}
+                      >
+                        {Math.round(entry.protein)}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        colFlex(16),
+                        {
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginLeft: 4,
+                        },
+                      ]}
+                    >
+                      <Text
+                        variant="bodySmall"
+                        numberOfLines={1}
+                        style={{ textAlign: "center", width: "100%" }}
+                      >
+                        {Math.round(entry.carbs)}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        colFlex(16),
+                        {
+                          alignItems: "center",
+                          justifyContent: "center",
+                          marginLeft: 4,
+                        },
+                      ]}
+                    >
+                      <Text
+                        variant="bodySmall"
+                        numberOfLines={1}
+                        style={{ textAlign: "center", width: "100%" }}
+                      >
+                        {Math.round(entry.fat)}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        colFlex(26),
+                        {
+                          flexDirection: "row",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 4,
+                        },
+                      ]}
+                    >
+                      <IconButton
+                        icon="content-save"
+                        size={18}
+                        onPress={() => {
+                          setNamingEntryId(entry.id);
+                          setFoodName(entry.foodName ?? "");
+                        }}
+                        mode="text"
+                        style={{ margin: 0 }}
+                      />
+                      <IconButton
+                        icon="delete-outline"
+                        size={18}
+                        onPress={async () => {
+                          await deleteNutritionLog(entry.id);
+                          loadLogEntries();
+                          loadTotals();
+                        }}
+                        mode="text"
+                        style={{ margin: 0 }}
+                      />
+                    </View>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </Surface>
+          <Surface
+            elevation={1}
+            style={{
+              flex: 1,
+              minHeight: 0,
+              borderRadius: 16,
+              paddingHorizontal: 12,
+              paddingVertical: 4,
+              overflow: "hidden",
+            }}
+          >
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingRight: 4, flexGrow: 1 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {savedFoodsList.length === 0 ? (
+                <View style={{ paddingVertical: 8, alignItems: "center" }}>
+                  <Text variant="bodySmall" style={{ opacity: 0.6 }}>
+                    No saved foods
+                  </Text>
+                </View>
+              ) : (
+                savedFoodsList.map((food) => (
+                  <Pressable
+                    key={food.id}
+                    onPress={() => {
+                      setCalories(String(Math.round(food.calories)));
+                      setProtein(String(Math.round(food.protein)));
+                      setCarbs(String(Math.round(food.carbs)));
+                      setFat(String(Math.round(food.fat)));
+                    }}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      paddingVertical: 1,
+                    }}
                   >
                     <Text
                       variant="bodySmall"
                       numberOfLines={1}
-                      style={{ textAlign: "center", width: "100%" }}
+                      style={{ flex: 1, minWidth: 0 }}
                     >
-                      {Math.round(entry.calories)}
+                      {food.name}
                     </Text>
-                  </View>
-                  <View
-                    style={[
-                      colFlex(16),
-                      { alignItems: "center", justifyContent: "center" },
-                    ]}
-                  >
                     <Text
-                      variant="bodySmall"
+                      variant="labelSmall"
                       numberOfLines={1}
-                      style={{ textAlign: "center", width: "100%" }}
+                      style={{ opacity: 0.6, marginRight: 4 }}
                     >
-                      {Math.round(entry.protein)}
+                      {Math.round(food.calories)} · {Math.round(food.protein)} ·{" "}
+                      {Math.round(food.carbs)} · {Math.round(food.fat)}
                     </Text>
-                  </View>
-                  <View
-                    style={[
-                      colFlex(16),
-                      { alignItems: "center", justifyContent: "center" },
-                    ]}
-                  >
-                    <Text
-                      variant="bodySmall"
-                      numberOfLines={1}
-                      style={{ textAlign: "center", width: "100%" }}
-                    >
-                      {Math.round(entry.carbs)}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      colFlex(16),
-                      { alignItems: "center", justifyContent: "center" },
-                    ]}
-                  >
-                    <Text
-                      variant="bodySmall"
-                      numberOfLines={1}
-                      style={{ textAlign: "center", width: "100%" }}
-                    >
-                      {Math.round(entry.fat)}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      colFlex(26),
-                      {
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 4,
-                      },
-                    ]}
-                  >
-                    <IconButton
-                      icon="content-save"
-                      size={18}
-                      onPress={() => {
-                        setNamingEntryId(entry.id);
-                        setFoodName(entry.foodName ?? "");
-                      }}
-                      mode="text"
-                      style={{ margin: 0 }}
-                    />
                     <IconButton
                       icon="delete-outline"
                       size={18}
                       onPress={async () => {
-                        await deleteNutritionLog(entry.id);
-                        loadLogEntries();
-                        loadTotals();
+                        await deleteSavedFood(food.id);
+                        loadSavedFoods();
                       }}
-                      mode="text"
                       style={{ margin: 0 }}
                     />
-                  </View>
-                </View>
-              ))
-            )}
-          </ScrollView>
-        </Surface>
+                  </Pressable>
+                ))
+              )}
+            </ScrollView>
+          </Surface>
+        </View>
       </View>
     </View>
   );
