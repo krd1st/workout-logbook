@@ -2059,10 +2059,7 @@ function RoutineRoute({ dataReady = true }) {
                   alignItems: "center",
                 }}
               >
-                <Text variant="titleMedium">WORKOUT PLAN</Text>
-                <Text variant="bodySmall" style={{ opacity: 0.7 }}>
-                  3-1-3-1 SPLIT
-                </Text>
+                <Text variant="titleMedium">LOGBOOK</Text>
               </View>
             </Surface>
           </View>
