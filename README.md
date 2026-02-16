@@ -1,2 +1,1 @@
-# workout-logbook
-Logbook for Progressive Overload
+Logbook for Progressive Overload and Calorie Tracking.
