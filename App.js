@@ -8,6 +8,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  TextInput as NativeTextInput,
   useColorScheme,
   useWindowDimensions,
   Vibration,
@@ -42,10 +43,14 @@ SplashScreen.preventAutoHideAsync();
 // All data is local (expo-sqlite). No network. Works fully offline once built.
 import {
   addLog,
+  addNutritionLog,
   deleteExerciseEntry,
   getExerciseEntries,
   getLastExerciseEntry,
+  getNutritionQuota,
+  getNutritionTotalsForDate,
   initDatabase,
+  setNutritionQuota,
   startWorkout,
 } from "./db/database";
 
@@ -802,7 +807,7 @@ function ExerciseCard({
                           }}
                           contentStyle={{ height: relativeUi.controlHeight }}
                         >
-                          SAVE
+                          LOG
                         </Button>
                       </View>
                     </View>
@@ -1082,6 +1087,391 @@ function ExerciseCard({
   );
 }
 
+function CenteredNutritionInput({
+  value,
+  onChangeText,
+  placeholder,
+  controlHeight,
+  controlRadius,
+  controlBorderWidth,
+  placeholderColor,
+  outlineColor,
+}) {
+  const showPlaceholder = !value || String(value).trim() === "";
+  const theme = useTheme();
+  return (
+    <View
+      style={{
+        width: "100%",
+        height: controlHeight,
+        borderRadius: controlRadius,
+        borderWidth: controlBorderWidth,
+        borderColor: outlineColor || theme.colors.outline,
+        overflow: "hidden",
+        justifyContent: "center",
+      }}
+    >
+      <NativeTextInput
+        value={value}
+        onChangeText={onChangeText}
+        keyboardType="decimal-pad"
+        caretHidden
+        style={{
+          width: "100%",
+          height: "100%",
+          textAlign: "center",
+          fontSize: 14,
+          color: theme.colors.onSurface,
+          padding: 0,
+          margin: 0,
+        }}
+        placeholder={showPlaceholder ? placeholder : ""}
+        placeholderTextColor={placeholderColor}
+      />
+    </View>
+  );
+}
+
+function NutritionSection() {
+  const theme = useTheme();
+  const colors = React.useMemo(() => getAppColors(theme), [theme]);
+  const insets = useSafeAreaInsets();
+  const { width: viewportWidth, height: viewportHeight } =
+    useWindowDimensions();
+  const relativeUi = React.useMemo(() => {
+    const scale = clamp(viewportWidth / 390, 0.85, 1.25);
+    return {
+      controlHeight: Math.round(44 * scale),
+      controlRadius: Math.round(24 * scale),
+      controlBorderWidth: Math.max(1, Math.round(1 * scale)),
+      rowGap: Math.max(4, Math.round(8 * scale)),
+    };
+  }, [viewportWidth]);
+  const blockMinHeight = React.useMemo(() => {
+    const topSectionHeight = viewportHeight * 0.5;
+    const headerEstimate = 120;
+    const contentHeight = Math.max(0, topSectionHeight - headerEstimate);
+    const oneRowHeight = (contentHeight - 2 * GRID_PADDING) / 3;
+    return Math.round(2 * oneRowHeight + GRID_PADDING);
+  }, [viewportHeight]);
+  const today = React.useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [totals, setTotals] = React.useState({
+    calories: 0,
+    protein: 0,
+    carbs: 0,
+    fat: 0,
+  });
+  const [quota, setQuota] = React.useState({
+    calories: 2500,
+    protein: 150,
+    carbs: 300,
+    fat: 80,
+  });
+  const [calories, setCalories] = React.useState("");
+  const [protein, setProtein] = React.useState("");
+  const [carbs, setCarbs] = React.useState("");
+  const [fat, setFat] = React.useState("");
+  const [isEditingQuota, setIsEditingQuota] = React.useState(false);
+
+  const loadTotals = React.useCallback(async () => {
+    const t = await getNutritionTotalsForDate(today);
+    setTotals(t);
+  }, [today]);
+
+  const loadQuota = React.useCallback(async () => {
+    const q = await getNutritionQuota();
+    setQuota(q);
+  }, []);
+
+  React.useEffect(() => {
+    loadTotals();
+  }, [loadTotals]);
+
+  React.useEffect(() => {
+    loadQuota();
+  }, [loadQuota]);
+
+  // --- Nutrition calculator logic ---
+  const CAL_PER_P = 4;
+  const CAL_PER_C = 4;
+  const CAL_PER_F = 9;
+
+  const parseNum = (s) => {
+    const t = String(s ?? "")
+      .trim()
+      .replace(",", ".");
+    if (t === "" || isNaN(Number(t))) return null;
+    return Number(t);
+  };
+
+  const cVal = parseNum(calories);
+  const pVal = parseNum(protein);
+  const cbVal = parseNum(carbs);
+  const fVal = parseNum(fat);
+
+  const filled = [cVal !== null, pVal !== null, cbVal !== null, fVal !== null];
+  const filledCount = filled.filter(Boolean).length;
+
+  // Compute the resolved set: fill missing field if exactly 3 present.
+  // When all 4 are filled, allow small mismatch (tolerance both ways); stored calories = macro-derived.
+  const CAL_TOLERANCE_PCT = 0.05;
+  const CAL_TOLERANCE_ABS = 50;
+  const resolved = React.useMemo(() => {
+    if (filledCount === 4) {
+      const macroCal = pVal * CAL_PER_P + cbVal * CAL_PER_C + fVal * CAL_PER_F;
+      return {
+        calories: Math.round(macroCal),
+        protein: pVal,
+        carbs: cbVal,
+        fat: fVal,
+        _macroCal: macroCal,
+      };
+    }
+    if (filledCount === 3) {
+      if (cVal === null) {
+        // missing calories
+        const calc = pVal * CAL_PER_P + cbVal * CAL_PER_C + fVal * CAL_PER_F;
+        return {
+          calories: Math.ceil(calc),
+          protein: pVal,
+          carbs: cbVal,
+          fat: fVal,
+        };
+      }
+      if (pVal === null) {
+        const remainder = cVal - cbVal * CAL_PER_C - fVal * CAL_PER_F;
+        return {
+          calories: cVal,
+          protein: Math.ceil(remainder / CAL_PER_P),
+          carbs: cbVal,
+          fat: fVal,
+        };
+      }
+      if (cbVal === null) {
+        const remainder = cVal - pVal * CAL_PER_P - fVal * CAL_PER_F;
+        return {
+          calories: cVal,
+          protein: pVal,
+          carbs: Math.ceil(remainder / CAL_PER_C),
+          fat: fVal,
+        };
+      }
+      if (fVal === null) {
+        const remainder = cVal - pVal * CAL_PER_P - cbVal * CAL_PER_C;
+        return {
+          calories: cVal,
+          protein: pVal,
+          carbs: cbVal,
+          fat: Math.ceil(remainder / CAL_PER_F),
+        };
+      }
+    }
+    return null;
+  }, [cVal, pVal, cbVal, fVal, filledCount]);
+
+  // Validation: non-negative; when all 4 given, calories within tolerance of macro-derived (both ways).
+  const isValid = React.useMemo(() => {
+    if (!resolved) return false;
+    const { calories: rc, protein: rp, carbs: rcb, fat: rf, _macroCal } = resolved;
+    if (rc < 0 || rp < 0 || rcb < 0 || rf < 0) return false;
+    if (filledCount === 4 && _macroCal != null) {
+      const tolerance = Math.max(CAL_TOLERANCE_ABS, _macroCal * CAL_TOLERANCE_PCT);
+      if (Math.abs(cVal - _macroCal) > tolerance) return false;
+    }
+    return true;
+  }, [resolved, filledCount, cVal]);
+
+  const canSave = filledCount >= 3;
+  const showError = canSave && !isValid;
+
+  const openQuotaEdit = React.useCallback(() => {
+    setCalories(String(Math.round(quota.calories)));
+    setProtein(String(Math.round(quota.protein)));
+    setCarbs(String(Math.round(quota.carbs)));
+    setFat(String(Math.round(quota.fat)));
+    setIsEditingQuota(true);
+  }, [quota.calories, quota.protein, quota.carbs, quota.fat]);
+
+  const exitQuotaEdit = React.useCallback(() => {
+    setIsEditingQuota(false);
+    setCalories("");
+    setProtein("");
+    setCarbs("");
+    setFat("");
+  }, []);
+
+  React.useEffect(() => {
+    if (!isEditingQuota) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      exitQuotaEdit();
+      return true;
+    });
+    return () => sub.remove();
+  }, [isEditingQuota, exitQuotaEdit]);
+
+  const handleLog = React.useCallback(async () => {
+    if (!resolved || !isValid) return;
+    const { _macroCal, ...toSave } = resolved;
+    await addNutritionLog({
+      date: today,
+      calories: toSave.calories,
+      protein: toSave.protein,
+      carbs: toSave.carbs,
+      fat: toSave.fat,
+    });
+    setCalories("");
+    setProtein("");
+    setCarbs("");
+    setFat("");
+    loadTotals();
+  }, [today, resolved, isValid, loadTotals]);
+
+  const handleSaveQuota = React.useCallback(async () => {
+    if (!resolved || !isValid) return;
+    const { _macroCal, ...toSave } = resolved;
+    await setNutritionQuota(toSave);
+    loadQuota();
+    exitQuotaEdit();
+  }, [resolved, isValid, loadQuota, exitQuotaEdit]);
+
+  const padding = {
+    paddingLeft: insets.left + GRID_PADDING,
+    paddingRight: insets.right + GRID_PADDING,
+    paddingBottom: insets.bottom + GRID_PADDING,
+    paddingTop: GRID_PADDING,
+  };
+  const placeholderColor = theme.dark
+    ? "rgba(255,255,255,0.4)"
+    : "rgba(0,0,0,0.4)";
+
+  const rowLayout = {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: relativeUi.rowGap,
+  };
+  const colFlex = (n) => ({ flex: n, minWidth: 0 });
+
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.surface }}>
+      <View style={[{ flex: 1 }, padding]}>
+        <Surface
+          elevation={1}
+          style={{
+            borderRadius: 16,
+            padding: 12,
+            paddingVertical: 10,
+            minHeight: blockMinHeight,
+            justifyContent: "flex-start",
+          }}
+        >
+          <View style={rowLayout}>
+            {[
+              { key: "cal", current: totals.calories, target: quota.calories, flex: 26 },
+              { key: "p", current: totals.protein, target: quota.protein, flex: 16 },
+              { key: "c", current: totals.carbs, target: quota.carbs, flex: 16 },
+              { key: "f", current: totals.fat, target: quota.fat, flex: 16 },
+            ].map(({ key, current, target, flex: f }) => (
+              <View
+                key={key}
+                style={[colFlex(f), { alignItems: "center", justifyContent: "center" }]}
+              >
+                <Text variant="titleMedium">{Math.round(current)}</Text>
+                <View
+                  style={{
+                    width: "80%",
+                    height: 1,
+                    backgroundColor: colors.outline,
+                    marginVertical: 4,
+                  }}
+                />
+                <Text variant="labelMedium">{Math.round(target)}</Text>
+              </View>
+            ))}
+            <View style={[colFlex(26), { alignItems: "center", justifyContent: "center" }]}>
+              <IconButton
+                icon="cog"
+                size={24}
+                onPress={() => (isEditingQuota ? exitQuotaEdit() : openQuotaEdit())}
+                mode={isEditingQuota ? "contained" : "outlined"}
+              />
+            </View>
+          </View>
+          <View style={[rowLayout, { marginTop: 6 }]}>
+            <View style={colFlex(26)}>
+              <CenteredNutritionInput
+                value={calories}
+                onChangeText={setCalories}
+                placeholder="Cal"
+                controlHeight={relativeUi.controlHeight}
+                controlRadius={relativeUi.controlRadius}
+                controlBorderWidth={relativeUi.controlBorderWidth}
+                placeholderColor={placeholderColor}
+                outlineColor={colors.outline}
+              />
+            </View>
+            <View style={colFlex(16)}>
+              <CenteredNutritionInput
+                value={protein}
+                onChangeText={setProtein}
+                placeholder="P"
+                controlHeight={relativeUi.controlHeight}
+                controlRadius={relativeUi.controlRadius}
+                controlBorderWidth={relativeUi.controlBorderWidth}
+                placeholderColor={placeholderColor}
+                outlineColor={colors.outline}
+              />
+            </View>
+            <View style={colFlex(16)}>
+              <CenteredNutritionInput
+                value={carbs}
+                onChangeText={setCarbs}
+                placeholder="C"
+                controlHeight={relativeUi.controlHeight}
+                controlRadius={relativeUi.controlRadius}
+                controlBorderWidth={relativeUi.controlBorderWidth}
+                placeholderColor={placeholderColor}
+                outlineColor={colors.outline}
+              />
+            </View>
+            <View style={colFlex(16)}>
+              <CenteredNutritionInput
+                value={fat}
+                onChangeText={setFat}
+                placeholder="F"
+                controlHeight={relativeUi.controlHeight}
+                controlRadius={relativeUi.controlRadius}
+                controlBorderWidth={relativeUi.controlBorderWidth}
+                placeholderColor={placeholderColor}
+                outlineColor={colors.outline}
+              />
+            </View>
+            <View style={colFlex(26)}>
+              <Button
+                mode="contained"
+                onPress={isEditingQuota ? handleSaveQuota : handleLog}
+                disabled={!canSave || showError}
+                buttonColor={showError ? "#d32f2f" : undefined}
+                style={{
+                  width: "100%",
+                  height: relativeUi.controlHeight,
+                  borderRadius: relativeUi.controlRadius,
+                }}
+                contentStyle={{
+                  height: relativeUi.controlHeight,
+                  flexShrink: 0,
+                }}
+                labelStyle={{ flexShrink: 0 }}
+              >
+                {showError ? "X" : isEditingQuota ? "SAVE" : "LOG"}
+              </Button>
+            </View>
+          </View>
+        </Surface>
+      </View>
+    </View>
+  );
+}
+
 function RoutineRoute({ dataReady = true }) {
   const [loading, setLoading] = React.useState(!dataReady);
   const [currentDayIndex, setCurrentDayIndex] = React.useState(null);
@@ -1230,43 +1620,84 @@ function RoutineRoute({ dataReady = true }) {
   }
 
   if (currentDayIndex === null) {
+    const headerPadding = 16;
     return (
-      <View style={{ flex: 1, backgroundColor: colors.background }}>
-        <View style={[contentStyle, { flexDirection: "row" }]}>
-          <View style={{ width: "50%", paddingRight: GRID_PADDING / 2 }}>
-            {[0, 1, 2].map((idx) => (
+      <View style={{ flex: 1 }}>
+        <View style={{ flex: 0.5, backgroundColor: colors.background }}>
+          <View style={fixedHeaderStyle}>
+            <Surface
+              elevation={0}
+              style={{
+                paddingVertical: headerPadding,
+                paddingHorizontal: 0,
+                borderRadius: 16,
+                backgroundColor: colors.surface,
+              }}
+            >
               <View
-                key={idx}
-                style={{ flex: 1, marginBottom: idx < 2 ? GRID_PADDING : 0 }}
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
               >
-                <DayButton
-                  dayIndex={idx}
-                  title={SPLIT[idx].name}
-                  subtitle={SPLIT[idx].name
-                    .replace(/^DAY\s*\d+\s*\.?\s*/i, "")
-                    .trim()}
-                  onPress={() => openDay(idx)}
-                />
+                <Text variant="titleMedium">WORKOUT PLAN</Text>
+                <Text variant="bodySmall" style={{ opacity: 0.7 }}>
+                  3-1-3-1 SPLIT
+                </Text>
               </View>
-            ))}
+            </Surface>
           </View>
-          <View style={{ width: "50%", paddingLeft: GRID_PADDING / 2 }}>
-            {[3, 4, 5].map((idx) => (
-              <View
-                key={idx}
-                style={{ flex: 1, marginBottom: idx < 5 ? GRID_PADDING : 0 }}
-              >
-                <DayButton
-                  dayIndex={idx}
-                  title={SPLIT[idx].name}
-                  subtitle={SPLIT[idx].name
-                    .replace(/^DAY\s*\d+\s*\.?\s*/i, "")
-                    .trim()}
-                  onPress={() => openDay(idx)}
-                />
-              </View>
-            ))}
+          <View
+            style={[
+              {
+                flex: 1,
+                paddingTop: GRID_PADDING,
+                paddingLeft: insets.left + GRID_PADDING,
+                paddingRight: insets.right + GRID_PADDING,
+                paddingBottom: insets.bottom + GRID_PADDING,
+                flexDirection: "row",
+              },
+            ]}
+          >
+            <View style={{ width: "50%", paddingRight: GRID_PADDING / 2 }}>
+              {[0, 1, 2].map((idx) => (
+                <View
+                  key={idx}
+                  style={{ flex: 1, marginBottom: idx < 2 ? GRID_PADDING : 0 }}
+                >
+                  <DayButton
+                    dayIndex={idx}
+                    title={SPLIT[idx].name}
+                    subtitle={SPLIT[idx].name
+                      .replace(/^DAY\s*\d+\s*\.?\s*/i, "")
+                      .trim()}
+                    onPress={() => openDay(idx)}
+                  />
+                </View>
+              ))}
+            </View>
+            <View style={{ width: "50%", paddingLeft: GRID_PADDING / 2 }}>
+              {[3, 4, 5].map((idx) => (
+                <View
+                  key={idx}
+                  style={{ flex: 1, marginBottom: idx < 5 ? GRID_PADDING : 0 }}
+                >
+                  <DayButton
+                    dayIndex={idx}
+                    title={SPLIT[idx].name}
+                    subtitle={SPLIT[idx].name
+                      .replace(/^DAY\s*\d+\s*\.?\s*/i, "")
+                      .trim()}
+                    onPress={() => openDay(idx)}
+                  />
+                </View>
+              ))}
+            </View>
           </View>
+        </View>
+        <View style={{ flex: 0.5 }}>
+          <NutritionSection />
         </View>
       </View>
     );
@@ -1286,7 +1717,8 @@ function RoutineRoute({ dataReady = true }) {
             <Surface
               elevation={0}
               style={{
-                padding: headerPadding,
+                paddingVertical: headerPadding,
+                paddingHorizontal: 0,
                 borderRadius: 16,
                 backgroundColor: colors.surface,
               }}
@@ -1358,7 +1790,12 @@ function RoutineRoute({ dataReady = true }) {
 
 const SPLASH_MIN_DURATION_MS = 1000;
 
-function PulsingSplashScreen({ onFinish, backgroundColor, isAppReady, minDurationMs }) {
+function PulsingSplashScreen({
+  onFinish,
+  backgroundColor,
+  isAppReady,
+  minDurationMs,
+}) {
   const scale = React.useRef(new Animated.Value(1)).current;
   const [minTimeElapsed, setMinTimeElapsed] = React.useState(false);
   const duration = minDurationMs ?? SPLASH_MIN_DURATION_MS;
@@ -1383,7 +1820,7 @@ function PulsingSplashScreen({ onFinish, backgroundColor, isAppReady, minDuratio
           useNativeDriver: true,
           easing: Easing.inOut(Easing.ease),
         }),
-      ])
+      ]),
     );
     pulse.start();
     return () => pulse.stop();
@@ -1443,7 +1880,14 @@ export default function App() {
   // Wait for fonts to load before rendering icons
   if (!fontsLoaded) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.background }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: colors.background,
+        }}
+      >
         <ActivityIndicator size="large" color="#9ca3af" />
       </View>
     );

@@ -46,6 +46,25 @@ export async function initDatabase() {
 
     CREATE INDEX IF NOT EXISTS idx_logs_exercise_date ON logs(exercise_name, date);
     CREATE INDEX IF NOT EXISTS idx_logs_workout ON logs(workout_id);
+
+    CREATE TABLE IF NOT EXISTS nutrition_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      calories REAL NOT NULL DEFAULT 0,
+      protein REAL NOT NULL DEFAULT 0,
+      carbs REAL NOT NULL DEFAULT 0,
+      fat REAL NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_nutrition_logs_date ON nutrition_logs(date);
+
+    CREATE TABLE IF NOT EXISTS nutrition_quota (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      calories REAL NOT NULL DEFAULT 2500,
+      protein REAL NOT NULL DEFAULT 150,
+      carbs REAL NOT NULL DEFAULT 300,
+      fat REAL NOT NULL DEFAULT 80
+    );
+    INSERT OR IGNORE INTO nutrition_quota (id, calories, protein, carbs, fat) VALUES (1, 2500, 150, 300, 80);
   `);
 
   // Migration for older installs (before `unit` existed).
@@ -155,6 +174,67 @@ export async function getExerciseHistory({ exerciseName, limit = 100 }) {
      ORDER BY l.date DESC, l.id DESC
      LIMIT ?;`,
     [exerciseName, limit],
+  );
+}
+
+// --- Nutrition (standalone calorie/macros log) ---
+export async function addNutritionLog({ date, calories = 0, protein = 0, carbs = 0, fat = 0 }) {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO nutrition_logs (date, calories, protein, carbs, fat) VALUES (?, ?, ?, ?, ?);`,
+    [date, Number(calories) || 0, Number(protein) || 0, Number(carbs) || 0, Number(fat) || 0],
+  );
+}
+
+export async function getNutritionTotalsForDate(date) {
+  const db = await getDb();
+  const row = await db.getFirstAsync(
+    `SELECT
+       COALESCE(SUM(calories), 0) as calories,
+       COALESCE(SUM(protein), 0) as protein,
+       COALESCE(SUM(carbs), 0) as carbs,
+       COALESCE(SUM(fat), 0) as fat
+     FROM nutrition_logs WHERE date = ?;`,
+    [date],
+  );
+  return row
+    ? {
+        calories: row.calories ?? 0,
+        protein: row.protein ?? 0,
+        carbs: row.carbs ?? 0,
+        fat: row.fat ?? 0,
+      }
+    : { calories: 0, protein: 0, carbs: 0, fat: 0 };
+}
+
+export async function getNutritionQuota() {
+  const db = await getDb();
+  const row = await db.getFirstAsync(`SELECT calories, protein, carbs, fat FROM nutrition_quota WHERE id = 1;`, []);
+  return row
+    ? {
+        calories: row.calories ?? 2500,
+        protein: row.protein ?? 150,
+        carbs: row.carbs ?? 300,
+        fat: row.fat ?? 80,
+      }
+    : { calories: 2500, protein: 150, carbs: 300, fat: 80 };
+}
+
+export async function setNutritionQuota({ calories, protein, carbs, fat }) {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO nutrition_quota (id, calories, protein, carbs, fat) VALUES (1, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET calories = ?, protein = ?, carbs = ?, fat = ?;`,
+    [
+      Number(calories) ?? 2500,
+      Number(protein) ?? 150,
+      Number(carbs) ?? 300,
+      Number(fat) ?? 80,
+      Number(calories) ?? 2500,
+      Number(protein) ?? 150,
+      Number(carbs) ?? 300,
+      Number(fat) ?? 80,
+    ],
   );
 }
 
