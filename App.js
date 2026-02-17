@@ -238,7 +238,7 @@ function getSchemeForExercise(exerciseName) {
   const name = String(exerciseName || "")
     .trim()
     .toLowerCase();
-  if (name === "barbell bench press (flat)")
+  if (name === "barbell bench press (flat)" || name === "flat barbell bench press")
     return { min: 3, max: 6, step: 1, unitShort: "reps" };
   if (name === "elbow plank")
     return { min: 30, max: 120, step: 15, unitShort: "sec" };
@@ -2292,7 +2292,7 @@ export default function App() {
     setShowSplash(false);
   }, []);
 
-  // Wait for fonts to load before rendering icons
+  // Wait for fonts to load before rendering icons (use fixed dark bg to avoid any flash)
   if (!fontsLoaded) {
     return (
       <View
@@ -2300,7 +2300,7 @@ export default function App() {
           flex: 1,
           justifyContent: "center",
           alignItems: "center",
-          backgroundColor: colors.background,
+          backgroundColor: "#212121",
         }}
       >
         <ActivityIndicator size="large" color="#9ca3af" />
