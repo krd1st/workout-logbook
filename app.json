@@ -10,16 +10,27 @@
       "**/*"
     ],
     "splash": {
+      "image": "./assets/splash-logo.png",
       "backgroundColor": "#212121",
       "resizeMode": "contain"
     },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-logo.png",
+          "backgroundColor": "#212121"
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": false
     },
     "android": {
       "package": "com.krd1st.logbook",
       "adaptiveIcon": {
-        "backgroundColor": "#212121"
+        "backgroundColor": "#212121",
+        "foregroundImage": "./assets/icon.png"
       }
     },
     "extra": {
@@ -27,6 +38,8 @@
         "projectId": "696cc009-bf7f-42cb-a418-5909651b8fbd"
       }
     },
-    "owner": "krd1st"
+    "owner": "krd1st",
+    "icon": "./assets/icon.png",
+    "backgroundColor": "#212121"
   }
 }
