@@ -64,6 +64,10 @@ export function RoutineScreen({ dataReady = true, onBack }) {
   const [editRoutineName, setEditRoutineName] = React.useState("");
   const [showAddExercise, setShowAddExercise] = React.useState(false);
   const [listAreaHeight, setListAreaHeight] = React.useState(0);
+  const [exerciseAreaHeight, setExerciseAreaHeight] = React.useState(0);
+  const [deleteModeRoutineId, setDeleteModeRoutineId] = React.useState(null);
+  const deleteTimerRef = React.useRef(null);
+  const editTimerRef = React.useRef(null);
 
   const loadRoutines = React.useCallback(async () => {
     const rows = await getRoutines();
@@ -97,6 +101,19 @@ export function RoutineScreen({ dataReady = true, onBack }) {
       }
       setClosingExercise(null);
       setExpandedExercise({ id: reId, mode: "history" });
+    },
+    [expandedExerciseId, expandedMode],
+  );
+
+  const handleOpenEdit = React.useCallback(
+    (reId) => {
+      if (expandedExerciseId === reId && expandedMode === "edit") {
+        setClosingExercise({ id: reId, mode: expandedMode });
+        setExpandedExercise(null);
+        return;
+      }
+      setClosingExercise(null);
+      setExpandedExercise({ id: reId, mode: "edit" });
     },
     [expandedExerciseId, expandedMode],
   );
@@ -137,6 +154,7 @@ export function RoutineScreen({ dataReady = true, onBack }) {
   );
 
   async function openDay(routine) {
+    setDeleteModeRoutineId(null);
     setCurrentRoutine(routine);
     setWorkoutId(null);
     setExpandedExercise(null);
@@ -222,17 +240,27 @@ export function RoutineScreen({ dataReady = true, onBack }) {
   }
 
   async function handleRoutineReorder(reordered) {
-    setRoutines(reordered);
+    // Delay state update to let the drag animation settle, avoiding a visual blink.
+    requestAnimationFrame(() => setRoutines(reordered));
     await reorderRoutines(reordered.map((r) => r.id));
   }
 
   async function handleExerciseReorder(reordered) {
-    setRoutineExercises(reordered);
+    requestAnimationFrame(() => setRoutineExercises(reordered));
     await reorderRoutineExercises(reordered.map((re) => re.id));
   }
 
   React.useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (deleteModeRoutineId !== null) {
+        setDeleteModeRoutineId(null);
+        return true;
+      }
+      if (expandedExerciseId !== null) {
+        setClosingExercise({ id: expandedExerciseId, mode: expandedMode });
+        setExpandedExercise(null);
+        return true;
+      }
       if (showAddExercise) {
         setShowAddExercise(false);
         return true;
@@ -248,7 +276,7 @@ export function RoutineScreen({ dataReady = true, onBack }) {
       return false;
     });
     return () => sub.remove();
-  }, [currentRoutine, onBack, showAddExercise]);
+  }, [currentRoutine, onBack, showAddExercise, deleteModeRoutineId, expandedExerciseId, expandedMode]);
 
   if (loading) {
     return (
@@ -258,29 +286,35 @@ export function RoutineScreen({ dataReady = true, onBack }) {
     );
   }
 
+  // --- Height calculations for both routine and exercise lists ---
   const MAX_FILL = 7;
   const shouldScroll = routines.length > MAX_FILL;
 
-  // Space taken by the fixed footer: add-button height + its vertical padding + bottom inset.
-  const footerHeight = ui.controlHeight + ui.gridPadding * 2 + insets.bottom + ui.gridPadding;
-  // Space available for the draggable list content (excluding list's own top/bottom padding).
-  const listPaddingV = ui.gridPadding * 2; // top + bottom padding inside DraggableList
-  const listInnerHeight = listAreaHeight - footerHeight - listPaddingV;
+  // Routine list heights
+  const footerHeight = ui.controlHeight + insets.bottom + ui.gridPadding;
+  const listTopPad = ui.gridPadding;
+  const innerHeight = listAreaHeight - footerHeight - listTopPad - insets.top;
+  const countForHeight = (n) => Math.max(n, 1);
+  const itemHeightFor = (n) => Math.max((innerHeight - n * ui.gridPadding) / n, 48);
+  const fixedItemHeight = itemHeightFor(MAX_FILL);
+  const nonScrollItemHeight = itemHeightFor(countForHeight(routines.length));
+  const itemHeight = shouldScroll ? fixedItemHeight : nonScrollItemHeight;
 
-  // At exactly MAX_FILL items, total gaps = (MAX_FILL) * gridPadding (each item has marginBottom).
-  const totalGaps7 = MAX_FILL * ui.gridPadding;
-  const fixedItemHeight = Math.max((listInnerHeight - totalGaps7) / MAX_FILL, 48);
+  // Exercise list heights — fixed size so 7 closed + 1 expanded panel = available height
+  const exFooterHeight = ui.controlHeight + insets.bottom + ui.gridPadding;
+  const exTopPad = insets.top + ui.gridPadding;
+  const exInnerHeight = exerciseAreaHeight - exFooterHeight - exTopPad;
+  // 7 * closedHeight + expandedPanelHeight + 7 * gap = available
+  const totalExGaps = MAX_FILL * ui.gridPadding;
+  // Before layout measurement, use null so items auto-size; after, use calculated height
+  const exerciseItemHeight = exerciseAreaHeight > 0
+    ? Math.max((exInnerHeight - ui.expandedWindowHeight - totalExGaps) / MAX_FILL, 48)
+    : null;
 
-  // For non-scroll: fill available space equally.
-  const nonScrollCount = Math.max(routines.length, 1);
-  const totalGapsNon = nonScrollCount * ui.gridPadding;
-  const nonScrollItemHeight = Math.max((listInnerHeight - totalGapsNon) / nonScrollCount, 48);
+  const renderRoutineItem = React.useCallback(({ item, drag }) => {
+    const isDeleteMode = deleteModeRoutineId === item.id;
 
-  // --- Routine list view ---
-  if (currentRoutine === null) {
-    const itemHeight = shouldScroll ? fixedItemHeight : nonScrollItemHeight;
-
-    const renderRoutineItem = ({ item, drag, isActive }) => (
+    return (
       <ScaleDecorator>
         <View
           style={{
@@ -288,69 +322,154 @@ export function RoutineScreen({ dataReady = true, onBack }) {
             marginBottom: ui.gridPadding,
           }}
         >
-          <DayButton
-            dayIndex={0}
-            title={item.name}
-            subtitle=""
-            onPress={() => openDay(item)}
+          {isDeleteMode ? (
+            <Pressable
+              style={{ flex: 1 }}
+              onPress={() => {
+                setDeleteModeRoutineId(null);
+                handleDeleteRoutine(item);
+              }}
+            >
+              <Surface
+                elevation={1}
+                style={{
+                  flex: 1,
+                  borderRadius: ui.cardBorderRadius,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <IconButton
+                  icon="delete-outline"
+                  size={ui.iconLg}
+                  iconColor={colors.error}
+                />
+              </Surface>
+            </Pressable>
+          ) : (
+            <DayButton
+              dayIndex={0}
+              title={item.name}
+              subtitle=""
+              onPress={() => {
+                if (deleteModeRoutineId !== null) {
+                  setDeleteModeRoutineId(null);
+                  return;
+                }
+                openDay(item);
+              }}
+              onLongPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                drag();
+                clearTimeout(deleteTimerRef.current);
+                deleteTimerRef.current = setTimeout(() => {
+                  setDeleteModeRoutineId(item.id);
+                }, 800);
+              }}
+            />
+          )}
+        </View>
+      </ScaleDecorator>
+    );
+  }, [itemHeight, ui.gridPadding, ui.cardBorderRadius, ui.iconLg, deleteModeRoutineId, colors.error]);
+
+  const renderExerciseItem = React.useCallback(({ item: re, drag }) => {
+    const isExpanded = expandedExerciseId === re.id;
+    const isClosing = closingExercise?.id === re.id;
+    const isActiveCard = isExpanded || isClosing;
+    const modeForCard = isExpanded
+      ? expandedMode
+      : isClosing
+        ? closingExercise.mode
+        : expandedMode;
+
+    const exerciseData = {
+      name: re.exercise_name,
+      unit_type: re.unit_type,
+      min_val: re.min_val,
+      max_val: re.max_val,
+      step: re.step,
+    };
+
+    const cardHeight = exerciseItemHeight == null
+      ? undefined
+      : isExpanded
+        ? exerciseItemHeight + ui.expandedWindowHeight
+        : exerciseItemHeight;
+
+    return (
+      <ScaleDecorator>
+        <View style={{ height: cardHeight, marginBottom: ui.gridPadding }}>
+          <ExerciseCard
+            workoutId={workoutId}
+            exerciseName={re.exercise_name}
+            exerciseData={exerciseData}
+            routineExerciseId={re.id}
+            refreshToken={refreshToken}
+            onDidMutate={() => setRefreshToken((x) => x + 1)}
+            expanded={isExpanded}
+            expandedMode={modeForCard}
+            onOpenAdd={() => handleOpenAdd(re.id)}
+            onOpenHistory={() => handleOpenHistory(re.id)}
+            onOpenEdit={() => handleOpenEdit(re.id)}
+            onRemoveFromRoutine={() => handleRemoveExercise(re)}
+            onExerciseUpdated={() => loadRoutineExercises(currentRoutine.id)}
             onLongPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               drag();
+              clearTimeout(editTimerRef.current);
+              editTimerRef.current = setTimeout(() => {
+                handleOpenEdit(re.id);
+              }, 800);
             }}
+            fillContainer
+            expandedWindowHeight={ui.expandedWindowHeight}
+            renderExpanded={isActiveCard}
+            onCollapseDone={
+              isClosing
+                ? () => {
+                    setClosingExercise((cur) =>
+                      cur?.id === re.id ? null : cur,
+                    );
+                  }
+                : undefined
+            }
           />
         </View>
       </ScaleDecorator>
     );
+  }, [expandedExerciseId, expandedMode, closingExercise, workoutId, refreshToken, ui, currentRoutine, exerciseItemHeight]);
+
+  // --- Routine list view ---
+  if (currentRoutine === null) {
 
     return (
       <View style={{ flex: 1, backgroundColor: colors.background }}>
-        <View style={fixedHeaderStyle}>
-          <Pressable
-            onPress={onBack}
-            hitSlop={{
-              top: ui.hitSlopMd,
-              bottom: ui.hitSlopMd,
-              left: ui.hitSlopMd,
-              right: ui.hitSlopMd,
-            }}
-          >
-            <Surface
-              elevation={0}
-              style={{
-                paddingVertical: ui.headerPadding,
-                paddingHorizontal: 0,
-                borderRadius: ui.headerBorderRadius,
-                backgroundColor: colors.surface,
-              }}
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <Text variant="titleMedium">PROGRESSIVE OVERLOAD TRACKER</Text>
-              </View>
-            </Surface>
-          </Pressable>
-        </View>
-
         <View
-          style={{ flex: 1 }}
+          style={{ flex: 1, paddingTop: insets.top }}
           onLayout={(e) => setListAreaHeight(e.nativeEvent.layout.height)}
         >
           <DraggableFlatList
             data={routines}
             keyExtractor={(item) => String(item.id)}
             renderItem={renderRoutineItem}
-            onDragEnd={({ data: reordered }) => handleRoutineReorder(reordered)}
+            extraData={deleteModeRoutineId}
+            onPlaceholderIndexChange={() => {
+              clearTimeout(deleteTimerRef.current);
+            }}
+            onDragEnd={({ data: reordered, from, to }) => {
+              clearTimeout(deleteTimerRef.current);
+              if (from !== to) {
+                setDeleteModeRoutineId(null);
+                handleRoutineReorder(reordered);
+              }
+            }}
             containerStyle={{ flex: 1 }}
             contentContainerStyle={{
               paddingTop: ui.gridPadding,
               paddingLeft: insets.left + ui.gridPadding,
               paddingRight: insets.right + ui.gridPadding,
-              paddingBottom: ui.gridPadding,
+              paddingBottom: 0,
               ...(shouldScroll ? {} : { flexGrow: 1 }),
             }}
             scrollEnabled={shouldScroll}
@@ -359,7 +478,7 @@ export function RoutineScreen({ dataReady = true, onBack }) {
           <View
             style={{
               paddingHorizontal: insets.left + ui.gridPadding,
-              paddingTop: ui.gridPadding,
+              paddingTop: 0,
               paddingBottom: insets.bottom + ui.gridPadding,
             }}
           >
@@ -445,170 +564,63 @@ export function RoutineScreen({ dataReady = true, onBack }) {
   }
 
   // --- Routine detail view (workout) ---
-  const renderExerciseItem = ({ item: re, drag, isActive }) => {
-    const isExpanded = expandedExerciseId === re.id;
-    const isClosing = closingExercise?.id === re.id;
-    const isActiveCard = isExpanded || isClosing;
-    const modeForCard = isExpanded
-      ? expandedMode
-      : isClosing
-        ? closingExercise.mode
-        : expandedMode;
-
-    const exerciseData = {
-      name: re.exercise_name,
-      unit_type: re.unit_type,
-      min_val: re.min_val,
-      max_val: re.max_val,
-      step: re.step,
-    };
-
-    return (
-      <ScaleDecorator>
-        <View style={{ marginBottom: ui.gridPadding }}>
-          <ExerciseCard
-            workoutId={workoutId}
-            exerciseName={re.exercise_name}
-            exerciseData={exerciseData}
-            routineExerciseId={re.id}
-            refreshToken={refreshToken}
-            onDidMutate={() => setRefreshToken((x) => x + 1)}
-            expanded={isExpanded}
-            expandedMode={modeForCard}
-            onOpenAdd={() => handleOpenAdd(re.id)}
-            onOpenHistory={() => handleOpenHistory(re.id)}
-            onRemoveFromRoutine={() => handleRemoveExercise(re)}
-            onExerciseUpdated={() => loadRoutineExercises(currentRoutine.id)}
-            onLongPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              drag();
-            }}
-            fillContainer={false}
-            expandedWindowHeight={ui.expandedWindowHeight}
-            renderExpanded={isActiveCard}
-            onCollapseDone={
-              isClosing
-                ? () => {
-                    setClosingExercise((cur) =>
-                      cur?.id === re.id ? null : cur,
-                    );
-                  }
-                : undefined
-            }
-          />
-        </View>
-      </ScaleDecorator>
-    );
-  };
-
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flex: 1, backgroundColor: colors.background }}>
-        <View style={fixedHeaderStyle}>
-          <Pressable
-            onPress={closeDay}
-            hitSlop={{
-              top: ui.hitSlopMd,
-              bottom: ui.hitSlopMd,
-              left: ui.hitSlopMd,
-              right: ui.hitSlopMd,
-            }}
-          >
-            <Surface
-              elevation={0}
-              style={{
-                paddingVertical: ui.headerPadding,
-                paddingHorizontal: 0,
-                borderRadius: ui.headerBorderRadius,
-                backgroundColor: colors.surface,
-              }}
-            >
-              <View
-                style={{
-                  flexDirection: "row",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                {editingRoutineId === currentRoutine.id ? (
-                  <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: ui.gridPadding * 0.5 }}>
-                    <TextInput
-                      mode="outlined"
-                      value={editRoutineName}
-                      onChangeText={setEditRoutineName}
-                      style={{ flex: 1, height: ui.controlHeight, backgroundColor: "transparent" }}
-                      contentStyle={{ height: ui.controlHeight }}
-                      outlineStyle={{ borderRadius: ui.controlRadius, borderWidth: ui.controlBorderWidth }}
-                      autoFocus
-                      onSubmitEditing={handleSaveRoutineName}
-                    />
-                    <IconButton icon="check" size={ui.iconLg} onPress={handleSaveRoutineName} />
-                    <IconButton
-                      icon="close"
-                      size={ui.iconLg}
-                      onPress={() => { setEditingRoutineId(null); setEditRoutineName(""); }}
-                    />
-                  </View>
-                ) : (
-                  <>
-                    <Pressable
-                      onPress={() => {
-                        setEditingRoutineId(currentRoutine.id);
-                        setEditRoutineName(currentRoutine.name);
-                      }}
-                      style={{ flex: 1 }}
-                    >
-                      <Text variant="titleMedium" numberOfLines={2}>
-                        {currentRoutine.name}
-                      </Text>
-                    </Pressable>
-                    <IconButton
-                      icon="delete-outline"
-                      size={ui.iconLg}
-                      onPress={() => handleDeleteRoutine(currentRoutine)}
-                      iconColor={colors.error}
-                    />
-                  </>
-                )}
-              </View>
-            </Surface>
-          </Pressable>
-        </View>
-
+      <View
+        style={{ flex: 1, backgroundColor: colors.background }}
+        onLayout={(e) => setExerciseAreaHeight(e.nativeEvent.layout.height)}
+      >
         <DraggableFlatList
           data={routineExercises}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderExerciseItem}
-          onDragEnd={({ data: reordered }) => handleExerciseReorder(reordered)}
+          extraData={exerciseItemHeight}
+          onPlaceholderIndexChange={() => {
+            clearTimeout(editTimerRef.current);
+          }}
+          onDragEnd={({ data: reordered, from, to }) => {
+            clearTimeout(editTimerRef.current);
+            if (from !== to) {
+              handleExerciseReorder(reordered);
+            }
+          }}
+          containerStyle={{ flex: 1 }}
           contentContainerStyle={{
-            paddingTop: ui.gridPadding,
+            paddingTop: exTopPad,
             paddingLeft: insets.left + ui.gridPadding,
             paddingRight: insets.right + ui.gridPadding,
-            paddingBottom: insets.bottom + ui.gridPadding,
+            paddingBottom: 0,
           }}
+          scrollEnabled
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          ListFooterComponent={
-            showAddExercise ? (
-              <Surface elevation={1} style={{ borderRadius: ui.cardBorderRadius, padding: ui.gridPadding }}>
-                <ExerciseForm
-                  submitLabel="Add Exercise"
-                  onSubmit={handleAddExerciseSubmit}
-                  onCancel={() => setShowAddExercise(false)}
-                />
-              </Surface>
-            ) : (
-              <Button
-                mode="outlined"
-                icon="plus"
-                onPress={() => setShowAddExercise(true)}
-                style={{ borderRadius: ui.controlRadius }}
-              >
-                Add Exercise
-              </Button>
-            )
-          }
         />
+        <View
+          style={{
+            paddingHorizontal: insets.left + ui.gridPadding,
+            paddingTop: 0,
+            paddingBottom: insets.bottom + ui.gridPadding,
+          }}
+        >
+          {showAddExercise ? (
+            <Surface elevation={1} style={{ borderRadius: ui.cardBorderRadius, padding: ui.gridPadding }}>
+              <ExerciseForm
+                submitLabel="Add Exercise"
+                onSubmit={handleAddExerciseSubmit}
+                onCancel={() => setShowAddExercise(false)}
+              />
+            </Surface>
+          ) : (
+            <Button
+              mode="outlined"
+              icon="plus"
+              onPress={() => setShowAddExercise(true)}
+              style={{ borderRadius: ui.controlRadius }}
+            >
+              Add Exercise
+            </Button>
+          )}
+        </View>
       </View>
     </View>
   );

@@ -18,6 +18,7 @@ export function ExerciseForm({
   submitLabel = "Add",
   onSubmit,
   onCancel,
+  onRemoveFromRoutine,
 }) {
   const theme = useTheme();
   const colors = React.useMemo(() => getAppColors(theme), [theme]);
@@ -168,6 +169,17 @@ export function ExerciseForm({
           {submitLabel}
         </Button>
       </View>
+      {onRemoveFromRoutine && (
+        <Button
+          mode="outlined"
+          icon="delete-outline"
+          onPress={onRemoveFromRoutine}
+          style={{ borderRadius: ui.controlRadius }}
+          textColor={colors.error}
+        >
+          Remove from Routine
+        </Button>
+      )}
     </View>
   );
 }
