@@ -41,11 +41,13 @@ export function ExerciseForm({
     });
   };
 
+  const compactH = Math.round(ui.controlHeight * 0.8);
+
   const inputStyle = {
-    height: ui.controlHeight,
+    height: compactH,
     backgroundColor: "transparent",
     textAlign: "center",
-    fontSize: ui.fontSizeBody * 0.9,
+    fontSize: ui.fontSizeBody * 0.85,
   };
 
   const outlineStyle = {
@@ -53,20 +55,22 @@ export function ExerciseForm({
     borderWidth: ui.controlBorderWidth,
   };
 
-  return (
-    <View style={{ gap: ui.gridPadding * 0.6 }}>
-      <TextInput
-        mode="outlined"
-        placeholder="Exercise name"
-        value={name}
-        onChangeText={setName}
-        style={inputStyle}
-        contentStyle={{ height: ui.controlHeight }}
-        outlineStyle={outlineStyle}
-        autoFocus
-      />
+  const g = ui.gridPadding * 0.4;
 
-      <View style={{ flexDirection: "row", gap: ui.gridPadding * 0.5 }}>
+  return (
+    <View style={{ gap: g }}>
+      {/* Row 1: Name + Reps/Sec toggle */}
+      <View style={{ flexDirection: "row", gap: g }}>
+        <TextInput
+          mode="outlined"
+          placeholder="Exercise name"
+          value={name}
+          onChangeText={setName}
+          style={[inputStyle, { flex: 2 }]}
+          contentStyle={{ height: compactH }}
+          outlineStyle={outlineStyle}
+          autoFocus
+        />
         {["reps", "sec"].map((type) => (
           <Pressable
             key={type}
@@ -83,8 +87,8 @@ export function ExerciseForm({
               }
             }}
             style={{
-              flex: 1,
-              height: ui.controlHeight,
+              flex: 0.7,
+              height: compactH,
               borderRadius: ui.controlRadius,
               justifyContent: "center",
               alignItems: "center",
@@ -94,68 +98,45 @@ export function ExerciseForm({
             }}
           >
             <Text
-              variant="labelMedium"
-              style={{
-                fontWeight: unitType === type ? "700" : "400",
-              }}
+              variant="labelSmall"
+              style={{ fontWeight: unitType === type ? "700" : "400" }}
             >
-              {type === "reps" ? "Reps" : "Seconds"}
+              {type === "reps" ? "Reps" : "Sec"}
             </Text>
           </Pressable>
         ))}
       </View>
 
-      <View style={{ flexDirection: "row", gap: ui.gridPadding * 0.5 }}>
-        <View style={{ flex: 1 }}>
-          <Text variant="labelSmall" style={{ opacity: 0.7, marginBottom: 2, textAlign: "center" }}>
-            Min
-          </Text>
-          <TextInput
-            mode="outlined"
-            value={minVal}
-            onChangeText={setMinVal}
-            keyboardType="number-pad"
-            style={inputStyle}
-            contentStyle={{ height: ui.controlHeight }}
-            outlineStyle={outlineStyle}
-          />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text variant="labelSmall" style={{ opacity: 0.7, marginBottom: 2, textAlign: "center" }}>
-            Max
-          </Text>
-          <TextInput
-            mode="outlined"
-            value={maxVal}
-            onChangeText={setMaxVal}
-            keyboardType="number-pad"
-            style={inputStyle}
-            contentStyle={{ height: ui.controlHeight }}
-            outlineStyle={outlineStyle}
-          />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text variant="labelSmall" style={{ opacity: 0.7, marginBottom: 2, textAlign: "center" }}>
-            Step
-          </Text>
-          <TextInput
-            mode="outlined"
-            value={stepVal}
-            onChangeText={setStepVal}
-            keyboardType="number-pad"
-            style={inputStyle}
-            contentStyle={{ height: ui.controlHeight }}
-            outlineStyle={outlineStyle}
-          />
-        </View>
+      {/* Row 2: Min / Max / Step */}
+      <View style={{ flexDirection: "row", gap: g, alignItems: "center" }}>
+        {[
+          { label: "Min", val: minVal, set: setMinVal },
+          { label: "Max", val: maxVal, set: setMaxVal },
+          { label: "Step", val: stepVal, set: setStepVal },
+        ].map((f) => (
+          <View key={f.label} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 2 }}>
+            <Text variant="labelSmall" style={{ opacity: 0.7 }}>{f.label}</Text>
+            <TextInput
+              mode="outlined"
+              value={f.val}
+              onChangeText={f.set}
+              keyboardType="number-pad"
+              style={[inputStyle, { flex: 1 }]}
+              contentStyle={{ height: compactH }}
+              outlineStyle={outlineStyle}
+            />
+          </View>
+        ))}
       </View>
 
-      <View style={{ flexDirection: "row", gap: ui.gridPadding * 0.5 }}>
+      {/* Row 3: Cancel / Save / Delete */}
+      <View style={{ flexDirection: "row", gap: g }}>
         {onCancel && (
           <Button
             mode="outlined"
             onPress={onCancel}
             style={{ flex: 1, borderRadius: ui.controlRadius }}
+            compact
           >
             Cancel
           </Button>
@@ -165,21 +146,23 @@ export function ExerciseForm({
           onPress={handleSubmit}
           style={{ flex: 1, borderRadius: ui.controlRadius }}
           disabled={!name.trim()}
+          compact
         >
           {submitLabel}
         </Button>
+        {onRemoveFromRoutine && (
+          <Button
+            mode="outlined"
+            icon="delete-outline"
+            onPress={onRemoveFromRoutine}
+            style={{ flex: 1, borderRadius: ui.controlRadius }}
+            textColor={colors.error}
+            compact
+          >
+            Delete
+          </Button>
+        )}
       </View>
-      {onRemoveFromRoutine && (
-        <Button
-          mode="outlined"
-          icon="delete-outline"
-          onPress={onRemoveFromRoutine}
-          style={{ borderRadius: ui.controlRadius }}
-          textColor={colors.error}
-        >
-          Remove from Routine
-        </Button>
-      )}
     </View>
   );
 }

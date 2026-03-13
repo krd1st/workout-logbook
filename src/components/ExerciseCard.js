@@ -482,7 +482,12 @@ export function ExerciseCard({
                 </View>
               )
             ) : expandedMode === "edit" ? (
-              <View style={{ padding: ui.gridPadding }}>
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ padding: ui.gridPadding }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
                 <ExerciseForm
                   initialName={exerciseName}
                   initialUnitType={exerciseData?.unit_type ?? "reps"}
@@ -494,7 +499,7 @@ export function ExerciseCard({
                   onCancel={onOpenEdit}
                   onRemoveFromRoutine={onRemoveFromRoutine}
                 />
-              </View>
+              </ScrollView>
             ) : /* History mode */
             loading ? (
               <ActivityIndicator />

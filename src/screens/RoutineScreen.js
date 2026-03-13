@@ -65,6 +65,8 @@ export function RoutineScreen({ dataReady = true, onBack }) {
   const [showAddExercise, setShowAddExercise] = React.useState(false);
   const [listAreaHeight, setListAreaHeight] = React.useState(0);
   const [exerciseAreaHeight, setExerciseAreaHeight] = React.useState(0);
+  const [exFooterMeasured, setExFooterMeasured] = React.useState(0);
+  const [routineFooterMeasured, setRoutineFooterMeasured] = React.useState(0);
   const [deleteModeRoutineId, setDeleteModeRoutineId] = React.useState(null);
   const deleteTimerRef = React.useRef(null);
   const editTimerRef = React.useRef(null);
@@ -290,25 +292,24 @@ export function RoutineScreen({ dataReady = true, onBack }) {
   const MAX_FILL = 7;
   const shouldScroll = routines.length > MAX_FILL;
 
-  // Routine list heights
-  const footerHeight = ui.controlHeight + insets.bottom + ui.gridPadding;
+  // Routine list heights — measured footer for accurate layout
   const listTopPad = ui.gridPadding;
-  const innerHeight = listAreaHeight - footerHeight - listTopPad - insets.top;
+  const innerHeight = listAreaHeight - routineFooterMeasured - listTopPad - insets.top;
   const countForHeight = (n) => Math.max(n, 1);
   const itemHeightFor = (n) => Math.max((innerHeight - n * ui.gridPadding) / n, 48);
   const fixedItemHeight = itemHeightFor(MAX_FILL);
   const nonScrollItemHeight = itemHeightFor(countForHeight(routines.length));
-  const itemHeight = shouldScroll ? fixedItemHeight : nonScrollItemHeight;
+  const itemHeight = (listAreaHeight > 0 && routineFooterMeasured > 0)
+    ? (shouldScroll ? fixedItemHeight : nonScrollItemHeight)
+    : null;
 
-  // Exercise list heights — fixed size so 7 closed + 1 expanded panel = available height
-  const exFooterHeight = ui.controlHeight + insets.bottom + ui.gridPadding;
+  // Exercise list heights — fixed closed height so 7 items fill the screen when all closed.
+  // When one expands, it pushes content down and scroll kicks in.
   const exTopPad = insets.top + ui.gridPadding;
-  const exInnerHeight = exerciseAreaHeight - exFooterHeight - exTopPad;
-  // 7 * closedHeight + expandedPanelHeight + 7 * gap = available
+  const exInnerHeight = exerciseAreaHeight - exFooterMeasured - exTopPad;
   const totalExGaps = MAX_FILL * ui.gridPadding;
-  // Before layout measurement, use null so items auto-size; after, use calculated height
-  const exerciseItemHeight = exerciseAreaHeight > 0
-    ? Math.max((exInnerHeight - ui.expandedWindowHeight - totalExGaps) / MAX_FILL, 48)
+  const exerciseItemHeight = (exerciseAreaHeight > 0 && exFooterMeasured > 0)
+    ? Math.max(Math.ceil((exInnerHeight - totalExGaps) / MAX_FILL), 48)
     : null;
 
   const renderRoutineItem = React.useCallback(({ item, drag }) => {
@@ -318,7 +319,7 @@ export function RoutineScreen({ dataReady = true, onBack }) {
       <ScaleDecorator>
         <View
           style={{
-            height: itemHeight,
+            height: itemHeight ?? undefined,
             marginBottom: ui.gridPadding,
           }}
         >
@@ -481,12 +482,14 @@ export function RoutineScreen({ dataReady = true, onBack }) {
               paddingTop: 0,
               paddingBottom: insets.bottom + ui.gridPadding,
             }}
+            onLayout={(e) => setRoutineFooterMeasured(e.nativeEvent.layout.height)}
           >
             <Button
               mode="outlined"
               icon="plus"
               onPress={() => setShowAddRoutine(true)}
-              style={{ borderRadius: ui.controlRadius }}
+              style={{ borderRadius: ui.controlRadius, height: ui.controlHeight * 1.12 }}
+              contentStyle={{ height: ui.controlHeight * 1.12 }}
             >
               Add Routine
             </Button>
@@ -591,7 +594,7 @@ export function RoutineScreen({ dataReady = true, onBack }) {
             paddingRight: insets.right + ui.gridPadding,
             paddingBottom: 0,
           }}
-          scrollEnabled
+          scrollEnabled={routineExercises.length > MAX_FILL || expandedExerciseId !== null}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         />
@@ -601,6 +604,7 @@ export function RoutineScreen({ dataReady = true, onBack }) {
             paddingTop: 0,
             paddingBottom: insets.bottom + ui.gridPadding,
           }}
+          onLayout={(e) => setExFooterMeasured(e.nativeEvent.layout.height)}
         >
           {showAddExercise ? (
             <Surface elevation={1} style={{ borderRadius: ui.cardBorderRadius, padding: ui.gridPadding }}>
@@ -615,7 +619,8 @@ export function RoutineScreen({ dataReady = true, onBack }) {
               mode="outlined"
               icon="plus"
               onPress={() => setShowAddExercise(true)}
-              style={{ borderRadius: ui.controlRadius }}
+              style={{ borderRadius: ui.controlRadius, height: ui.controlHeight * 1.12 }}
+              contentStyle={{ height: ui.controlHeight * 1.12 }}
             >
               Add Exercise
             </Button>
