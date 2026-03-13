@@ -45,6 +45,7 @@ export function ExerciseCard({
   onOpenHistory,
   onRemoveFromRoutine,
   onExerciseUpdated,
+  onOpenEdit,
   onLongPress,
   fillContainer,
   expandedWindowHeight,
@@ -56,7 +57,7 @@ export function ExerciseCard({
   const [loading, setLoading] = React.useState(true);
   const [lastEntry, setLastEntry] = React.useState(null);
   const [entries, setEntries] = React.useState([]);
-  const [editMode, setEditMode] = React.useState(false);
+  // editMode is now driven by expandedMode === "edit" from parent
   const expandAnim = React.useRef(new Animated.Value(expanded ? 1 : 0)).current;
   const wasExpandedRef = React.useRef(expanded);
   const ui = useRelativeUi();
@@ -217,7 +218,7 @@ export function ExerciseCard({
       max,
       step,
     });
-    setEditMode(false);
+    if (onOpenEdit) onOpenEdit(); // toggle closed
     if (onExerciseUpdated) onExerciseUpdated();
     await refresh();
   }
@@ -274,30 +275,6 @@ export function ExerciseCard({
     };
   }, [expanded, expandAnim, onCollapseDone]);
 
-  // Edit mode overlay
-  if (editMode) {
-    return (
-      <Surface
-        elevation={1}
-        style={[
-          { borderRadius: ui.cardBorderRadius, overflow: "hidden", padding: ui.gridPadding },
-          fillContainer && { flex: 1, minHeight: 0 },
-        ]}
-      >
-        <ExerciseForm
-          initialName={exerciseName}
-          initialUnitType={exerciseData?.unit_type ?? "reps"}
-          initialMin={exerciseData?.min_val ?? 8}
-          initialMax={exerciseData?.max_val ?? 12}
-          initialStep={exerciseData?.step ?? 1}
-          submitLabel="Save"
-          onSubmit={handleEditExercise}
-          onCancel={() => setEditMode(false)}
-        />
-      </Surface>
-    );
-  }
-
   return (
     <Surface
       elevation={1}
@@ -310,7 +287,7 @@ export function ExerciseCard({
       {/* Header row */}
       <Pressable
         onLongPress={onLongPress}
-        delayLongPress={200}
+        delayLongPress={1000}
         style={{
           flexDirection: "row",
           alignItems: "center",
@@ -336,19 +313,6 @@ export function ExerciseCard({
             {lastLine}
           </Text>
         </View>
-        <IconButton
-          icon="pencil-outline"
-          size={ui.iconSm}
-          onPress={() => setEditMode(true)}
-        />
-        {onRemoveFromRoutine && (
-          <IconButton
-            icon="close"
-            size={ui.iconSm}
-            onPress={onRemoveFromRoutine}
-            iconColor={colors.error}
-          />
-        )}
         <IconButton
           icon="plus"
           size={ui.iconLg}
@@ -517,6 +481,20 @@ export function ExerciseCard({
                   />
                 </View>
               )
+            ) : expandedMode === "edit" ? (
+              <View style={{ padding: ui.gridPadding }}>
+                <ExerciseForm
+                  initialName={exerciseName}
+                  initialUnitType={exerciseData?.unit_type ?? "reps"}
+                  initialMin={exerciseData?.min_val ?? 8}
+                  initialMax={exerciseData?.max_val ?? 12}
+                  initialStep={exerciseData?.step ?? 1}
+                  submitLabel="Save"
+                  onSubmit={handleEditExercise}
+                  onCancel={onOpenEdit}
+                  onRemoveFromRoutine={onRemoveFromRoutine}
+                />
+              </View>
             ) : /* History mode */
             loading ? (
               <ActivityIndicator />

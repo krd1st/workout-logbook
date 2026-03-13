@@ -3,7 +3,7 @@ import { Pressable } from "react-native";
 import { Surface, Text } from "react-native-paper";
 import { useRelativeUi } from "../hooks/useRelativeUi";
 
-export function DayButton({ dayIndex, title, subtitle, onPress, onLongPress }) {
+export function DayButton({ dayIndex, title, subtitle, onPress, onLongPress, delayLongPress = 200 }) {
   const ui = useRelativeUi();
 
   return (
@@ -11,7 +11,7 @@ export function DayButton({ dayIndex, title, subtitle, onPress, onLongPress }) {
       style={{ flex: 1 }}
       onPress={onPress}
       onLongPress={onLongPress}
-      delayLongPress={200}
+      delayLongPress={delayLongPress}
     >
       <Surface
         elevation={1}
