@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo export --platform ios --output-dir /tmp/expo-check-build 2>&1 | tail -20)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo export --platform ios --output-dir /tmp/expo-check-build2 2>&1 | tail -10)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && rm -rf /tmp/expo-check-build3 && npx expo export --platform ios --output-dir /tmp/expo-check-build3 2>&1 | tail -10)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo export --platform ios 2>&1 | tail -30)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo export --platform ios 2>&1 | tail -10)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo export --platform ios 2>&1 | tail -5)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo install react-native-reanimated react-native-gesture-handler react-native-draggable-flatlist 2>&1 | tail -20)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo install react-native-reanimated react-native-gesture-handler 2>&1 | tail -10)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo install react-native-draggable-flatlist 2>&1 | tail -10)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && node -e \"try{require.resolve\\('expo-haptics'\\);console.log\\('installed'\\)}catch{console.log\\('not installed'\\)}\")",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo install expo-haptics 2>&1 | tail -10)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo export --platform ios 2>&1 | tail -15)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo start --clear 2>&1 | head -20)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && node -e \"const p = require\\('./node_modules/react-native-reanimated/package.json'\\); console.log\\('reanimated:', p.version\\)\" && node -e \"const p = require\\('./node_modules/react-native-worklets-core/package.json'\\); console.log\\('worklets:', p.version\\)\" 2>/dev/null; cat node_modules/react-native-reanimated/package.json | python3 -c \"import sys,json; print\\('reanimated:', json.load\\(sys.stdin\\)['version']\\)\" 2>/dev/null)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo install react-native-reanimated --fix 2>&1 | tail -15)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npm uninstall react-native-draggable-flatlist react-native-reanimated react-native-gesture-handler 2>&1 | tail -5)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo install --check 2>&1 | head -20)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && node -e \"\nconst p = require\\('./node_modules/expo/package.json'\\);\nconsole.log\\('expo version:', p.version\\);\n\" 2>&1)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npm info expo@54.0.33 dependencies 2>&1 | head -30)",
+      "Bash(npm view:*)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && node -e \"\ntry {\n  const sdk = require\\('./node_modules/expo/bundledNativeModules.json'\\);\n  console.log\\('reanimated:', sdk['react-native-reanimated']\\);\n  console.log\\('gesture:', sdk['react-native-gesture-handler']\\);\n} catch\\(e\\) { console.error\\(e.message\\); }\n\")",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npx expo install react-native-reanimated react-native-gesture-handler react-native-draggable-flatlist 2>&1 | tail -10)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && node -e \"console.log\\(require\\('./node_modules/react-native-reanimated/package.json'\\).version\\)\")",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && node -e \"\nconst r = require\\('./node_modules/react-native-reanimated/package.json'\\);\nconsole.log\\('reanimated:', r.version\\);\ntry {\n  const w = require\\('./node_modules/react-native-worklets-core/package.json'\\);\n  console.log\\('worklets-core:', w.version\\);\n} catch { console.log\\('worklets-core: not a direct dep'\\); }\n\" && node -e \"\nconst deps = require\\('./node_modules/react-native-reanimated/package.json'\\).dependencies || {};\nconst peer = require\\('./node_modules/react-native-reanimated/package.json'\\).peerDependencies || {};\nconsole.log\\('reanimated deps:', JSON.stringify\\(deps\\)\\);\nconsole.log\\('reanimated peerDeps:', JSON.stringify\\(peer\\)\\);\n\")",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && node -e \"\ntry {\n  const w = require\\('./node_modules/react-native-worklets/package.json'\\);\n  console.log\\('react-native-worklets:', w.version\\);\n} catch\\(e\\) { console.log\\('not found'\\); }\n\" && ls node_modules | grep worklet 2>/dev/null)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && npm install react-native-worklets@0.5.1 2>&1 | tail -10)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && node -e \"console.log\\(require\\('./node_modules/react-native-worklets/package.json'\\).version\\)\")",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && rm -rf node_modules/.cache && rm -rf /tmp/metro-* && rm -rf /tmp/haste-map-*)",
+      "Bash(cd \"/Users/romanhaldava/Krd1st Labs/workout-logbook\" && rm -rf node_modules/.cache; ls node_modules/react-native-worklets/package.json 2>/dev/null && node -e \"console.log\\(require\\('./node_modules/react-native-worklets/package.json'\\).version\\)\")"
+    ]
+  }
+}

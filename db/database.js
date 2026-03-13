@@ -1,4 +1,6 @@
 import { openDatabaseAsync } from 'expo-sqlite';
+import { SPLIT } from '../src/constants/split';
+import { getSchemeForExercise } from '../src/utils/exerciseScheme';
 
 const DB_NAME = 'gym_log_book.db';
 
@@ -74,11 +76,79 @@ export async function initDatabase() {
       carbs REAL NOT NULL DEFAULT 0,
       fat REAL NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS exercises (
+      name TEXT PRIMARY KEY,
+      unit_type TEXT NOT NULL DEFAULT 'reps' CHECK (unit_type IN ('reps','sec')),
+      min_val INTEGER NOT NULL DEFAULT 8,
+      max_val INTEGER NOT NULL DEFAULT 12,
+      step INTEGER NOT NULL DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS routines (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS routine_exercises (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      routine_id INTEGER NOT NULL,
+      exercise_name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY (routine_id) REFERENCES routines(id) ON DELETE CASCADE,
+      FOREIGN KEY (exercise_name) REFERENCES exercises(name) ON UPDATE CASCADE ON DELETE CASCADE
+    );
   `);
 
   // Migration for older installs (before `unit` existed).
   await ensureColumnExists({ tableName: 'logs', columnName: 'unit', columnDDL: "unit TEXT NOT NULL DEFAULT 'kg'" });
   await ensureColumnExists({ tableName: 'nutrition_logs', columnName: 'food_name', columnDDL: "food_name TEXT DEFAULT ''" });
+  await ensureColumnExists({ tableName: 'workouts', columnName: 'routine_id', columnDDL: "routine_id INTEGER" });
+
+  // Seed routines & exercises from hardcoded SPLIT if tables are empty.
+  await seedFromSplit();
+}
+
+async function seedFromSplit() {
+  const db = await getDb();
+  const existing = await db.getFirstAsync(`SELECT COUNT(*) as cnt FROM routines;`, []);
+  if (existing.cnt > 0) return;
+
+  // Collect all unique exercises across all splits and insert them.
+  const seenExercises = new Set();
+  for (const split of SPLIT) {
+    for (const exName of split.exercises) {
+      if (seenExercises.has(exName)) continue;
+      seenExercises.add(exName);
+      const scheme = getSchemeForExercise(exName);
+      await db.runAsync(
+        `INSERT OR IGNORE INTO exercises (name, unit_type, min_val, max_val, step) VALUES (?, ?, ?, ?, ?);`,
+        [exName, scheme.unitShort === 'sec' ? 'sec' : 'reps', scheme.min, scheme.max, scheme.step],
+      );
+    }
+  }
+
+  // Insert routines and their exercise links.
+  for (let i = 0; i < SPLIT.length; i++) {
+    const split = SPLIT[i];
+    const res = await db.runAsync(
+      `INSERT INTO routines (name, sort_order) VALUES (?, ?);`,
+      [split.name, i],
+    );
+    const routineId = res.lastInsertRowId;
+    for (let j = 0; j < split.exercises.length; j++) {
+      await db.runAsync(
+        `INSERT INTO routine_exercises (routine_id, exercise_name, sort_order) VALUES (?, ?, ?);`,
+        [routineId, split.exercises[j], j],
+      );
+    }
+    // Backfill routine_id on existing workouts that used this split_index.
+    await db.runAsync(
+      `UPDATE workouts SET routine_id = ? WHERE split_index = ? AND routine_id IS NULL;`,
+      [routineId, i],
+    );
+  }
 }
 
 export async function getActiveWorkout() {
@@ -97,13 +167,126 @@ export async function getLastCompletedWorkout() {
   );
 }
 
-export async function startWorkout({ splitIndex, plannedName, startedAtISO }) {
+export async function startWorkout({ splitIndex, plannedName, startedAtISO, routineId }) {
   const db = await getDb();
   const res = await db.runAsync(
-    `INSERT INTO workouts (split_index, planned_name, started_at) VALUES (?, ?, ?);`,
-    [splitIndex, plannedName, startedAtISO],
+    `INSERT INTO workouts (split_index, planned_name, started_at, routine_id) VALUES (?, ?, ?, ?);`,
+    [splitIndex ?? 0, plannedName, startedAtISO, routineId ?? null],
   );
   return res.lastInsertRowId;
+}
+
+// --- Routines CRUD ---
+export async function getRoutines() {
+  const db = await getDb();
+  return await db.getAllAsync(`SELECT * FROM routines ORDER BY sort_order ASC, id ASC;`, []);
+}
+
+export async function createRoutine({ name }) {
+  const db = await getDb();
+  // Push all existing routines down by 1 so the new one appears at the top.
+  await db.runAsync(`UPDATE routines SET sort_order = sort_order + 1;`, []);
+  const res = await db.runAsync(
+    `INSERT INTO routines (name, sort_order) VALUES (?, 0);`,
+    [name.trim()],
+  );
+  return res.lastInsertRowId;
+}
+
+export async function updateRoutine({ id, name }) {
+  const db = await getDb();
+  await db.runAsync(`UPDATE routines SET name = ? WHERE id = ?;`, [name.trim(), id]);
+}
+
+export async function deleteRoutine(id) {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM routines WHERE id = ?;`, [id]);
+}
+
+// --- Exercises CRUD ---
+export async function getExercises() {
+  const db = await getDb();
+  return await db.getAllAsync(`SELECT * FROM exercises ORDER BY name ASC;`, []);
+}
+
+export async function createExercise({ name, unitType = 'reps', min = 8, max = 12, step = 1 }) {
+  const db = await getDb();
+  await db.runAsync(
+    `INSERT INTO exercises (name, unit_type, min_val, max_val, step) VALUES (?, ?, ?, ?, ?);`,
+    [name.trim(), unitType, min, max, step],
+  );
+}
+
+export async function updateExercise({ oldName, name, unitType, min, max, step }) {
+  const db = await getDb();
+  const newName = name.trim();
+  // Update exercise definition.
+  await db.runAsync(
+    `UPDATE exercises SET name = ?, unit_type = ?, min_val = ?, max_val = ?, step = ? WHERE name = ?;`,
+    [newName, unitType, min, max, step, oldName],
+  );
+  // Cascade rename in logs if name changed.
+  if (newName !== oldName) {
+    await db.runAsync(`UPDATE logs SET exercise_name = ? WHERE exercise_name = ?;`, [newName, oldName]);
+    await db.runAsync(`UPDATE routine_exercises SET exercise_name = ? WHERE exercise_name = ?;`, [newName, oldName]);
+  }
+}
+
+export async function deleteExercise(name) {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM exercises WHERE name = ?;`, [name]);
+}
+
+// --- Routine ↔ Exercise junction ---
+export async function getRoutineExercises(routineId) {
+  const db = await getDb();
+  return await db.getAllAsync(
+    `SELECT re.id, re.routine_id, re.exercise_name, re.sort_order,
+            e.unit_type, e.min_val, e.max_val, e.step
+     FROM routine_exercises re
+     JOIN exercises e ON e.name = re.exercise_name
+     WHERE re.routine_id = ?
+     ORDER BY re.sort_order ASC, re.id ASC;`,
+    [routineId],
+  );
+}
+
+export async function addExerciseToRoutine({ routineId, exerciseName, sortOrder }) {
+  const db = await getDb();
+  let order = sortOrder;
+  if (order == null) {
+    const maxRow = await db.getFirstAsync(
+      `SELECT COALESCE(MAX(sort_order), -1) as m FROM routine_exercises WHERE routine_id = ?;`,
+      [routineId],
+    );
+    order = (maxRow?.m ?? -1) + 1;
+  }
+  const res = await db.runAsync(
+    `INSERT INTO routine_exercises (routine_id, exercise_name, sort_order) VALUES (?, ?, ?);`,
+    [routineId, exerciseName, order],
+  );
+  return res.lastInsertRowId;
+}
+
+export async function removeExerciseFromRoutine(id) {
+  const db = await getDb();
+  await db.runAsync(`DELETE FROM routine_exercises WHERE id = ?;`, [id]);
+}
+
+// Reorder routines: orderedIds is the full list of routine IDs in new order.
+export async function reorderRoutines(orderedIds) {
+  const db = await getDb();
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db.runAsync(`UPDATE routines SET sort_order = ? WHERE id = ?;`, [i, orderedIds[i]]);
+  }
+}
+
+// Reorder exercises within a routine: orderedIds is the full list of routine_exercises IDs in new order.
+export async function reorderRoutineExercises(orderedIds) {
+  const db = await getDb();
+  for (let i = 0; i < orderedIds.length; i++) {
+    await db.runAsync(`UPDATE routine_exercises SET sort_order = ? WHERE id = ?;`, [i, orderedIds[i]]);
+  }
 }
 
 export async function finishWorkout({ workoutId, completedAtISO }) {
