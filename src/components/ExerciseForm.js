@@ -15,9 +15,9 @@ export function ExerciseForm({
   initialMin = 8,
   initialMax = 12,
   initialStep = 1,
+  initialNumSets = 2,
   submitLabel = "Add",
   onSubmit,
-  onCancel,
   onRemoveFromRoutine,
 }) {
   const theme = useTheme();
@@ -28,6 +28,7 @@ export function ExerciseForm({
   const [minVal, setMinVal] = React.useState(String(initialMin));
   const [maxVal, setMaxVal] = React.useState(String(initialMax));
   const [stepVal, setStepVal] = React.useState(String(initialStep));
+  const [numSets, setNumSets] = React.useState(String(initialNumSets));
 
   const handleSubmit = () => {
     const trimmed = name.trim();
@@ -38,16 +39,15 @@ export function ExerciseForm({
       min: Number(minVal) || 1,
       max: Number(maxVal) || 12,
       step: Number(stepVal) || 1,
+      numSets: Number(numSets) || 2,
     });
   };
 
-  const compactH = Math.round(ui.controlHeight * 0.8);
-
   const inputStyle = {
-    height: compactH,
+    height: ui.controlHeight,
     backgroundColor: "transparent",
     textAlign: "center",
-    fontSize: ui.fontSizeBody * 0.85,
+    fontSize: ui.fontSizeBody,
   };
 
   const outlineStyle = {
@@ -55,98 +55,119 @@ export function ExerciseForm({
     borderWidth: ui.controlBorderWidth,
   };
 
-  const g = ui.gridPadding * 0.4;
+  const g = ui.gridPadding;
 
   return (
-    <View style={{ gap: g }}>
-      {/* Row 1: Name + Reps/Sec toggle */}
-      <View style={{ flexDirection: "row", gap: g }}>
+    <View style={{ gap: g * 1.5 }}>
+      {/* Exercise name */}
+      <View>
+        <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6 }}>Exercise name</Text>
         <TextInput
           mode="outlined"
-          placeholder="Exercise name"
+          placeholder="e.g. Bench Press"
           value={name}
           onChangeText={setName}
-          style={[inputStyle, { flex: 2 }]}
-          contentStyle={{ height: compactH }}
+          style={inputStyle}
+          contentStyle={{ height: ui.controlHeight }}
           outlineStyle={outlineStyle}
           autoFocus
         />
-        {["reps", "sec"].map((type) => (
-          <Pressable
-            key={type}
-            onPress={() => {
-              setUnitType(type);
-              if (type === "sec") {
-                setMinVal("30");
-                setMaxVal("120");
-                setStepVal("15");
-              } else {
-                setMinVal("8");
-                setMaxVal("12");
-                setStepVal("1");
-              }
-            }}
-            style={{
-              flex: 0.7,
-              height: compactH,
-              borderRadius: ui.controlRadius,
-              justifyContent: "center",
-              alignItems: "center",
-              borderWidth: ui.controlBorderWidth,
-              borderColor: unitType === type ? colors.outline : colors.outlineVariant,
-              backgroundColor: unitType === type ? colors.surface : "transparent",
-            }}
-          >
-            <Text
-              variant="labelSmall"
-              style={{ fontWeight: unitType === type ? "700" : "400" }}
+      </View>
+
+      {/* Unit type toggle */}
+      <View>
+        <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6 }}>Unit type</Text>
+        <View style={{ flexDirection: "row", gap: g * 0.5 }}>
+          {["reps", "sec"].map((type) => (
+            <Pressable
+              key={type}
+              onPress={() => {
+                setUnitType(type);
+                if (type === "sec") {
+                  setMinVal("30"); setMaxVal("120"); setStepVal("15");
+                } else {
+                  setMinVal("8"); setMaxVal("12"); setStepVal("1");
+                }
+              }}
+              style={{
+                flex: 1,
+                height: ui.controlHeight,
+                borderRadius: ui.controlRadius,
+                justifyContent: "center",
+                alignItems: "center",
+                borderWidth: ui.controlBorderWidth,
+                borderColor: unitType === type ? colors.outline : colors.outlineVariant,
+                backgroundColor: unitType === type ? colors.surface : "transparent",
+              }}
             >
-              {type === "reps" ? "Reps" : "Sec"}
-            </Text>
-          </Pressable>
-        ))}
+              <Text variant="labelMedium" style={{ fontWeight: unitType === type ? "700" : "400" }}>
+                {type === "reps" ? "Reps" : "Seconds"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
 
-      {/* Row 2: Min / Max / Step */}
-      <View style={{ flexDirection: "row", gap: g, alignItems: "center" }}>
-        {[
-          { label: "Min", val: minVal, set: setMinVal },
-          { label: "Max", val: maxVal, set: setMaxVal },
-          { label: "Step", val: stepVal, set: setStepVal },
-        ].map((f) => (
-          <View key={f.label} style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 2 }}>
-            <Text variant="labelSmall" style={{ opacity: 0.7 }}>{f.label}</Text>
-            <TextInput
-              mode="outlined"
-              value={f.val}
-              onChangeText={f.set}
-              keyboardType="number-pad"
-              style={[inputStyle, { flex: 1 }]}
-              contentStyle={{ height: compactH }}
-              outlineStyle={outlineStyle}
-            />
-          </View>
-        ))}
-      </View>
-
-      {/* Row 3: Cancel / Save / Delete */}
-      <View style={{ flexDirection: "row", gap: g }}>
-        {onCancel && (
-          <Button
+      {/* Range + Sets row */}
+      <View style={{ flexDirection: "row", gap: g * 0.5 }}>
+        <View style={{ flex: 1 }}>
+          <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6, textAlign: "center" }}>Min</Text>
+          <TextInput
             mode="outlined"
-            onPress={onCancel}
-            style={{ flex: 1, borderRadius: ui.controlRadius }}
-            compact
-          >
-            Cancel
-          </Button>
-        )}
+            value={minVal}
+            onChangeText={setMinVal}
+            keyboardType="number-pad"
+            style={inputStyle}
+            contentStyle={{ height: ui.controlHeight, textAlign: "center" }}
+            outlineStyle={outlineStyle}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6, textAlign: "center" }}>Max</Text>
+          <TextInput
+            mode="outlined"
+            value={maxVal}
+            onChangeText={setMaxVal}
+            keyboardType="number-pad"
+            style={inputStyle}
+            contentStyle={{ height: ui.controlHeight, textAlign: "center" }}
+            outlineStyle={outlineStyle}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6, textAlign: "center" }}>Step</Text>
+          <TextInput
+            mode="outlined"
+            value={stepVal}
+            onChangeText={setStepVal}
+            keyboardType="number-pad"
+            style={inputStyle}
+            contentStyle={{ height: ui.controlHeight, textAlign: "center" }}
+            outlineStyle={outlineStyle}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6, textAlign: "center" }}>Sets</Text>
+          <TextInput
+            mode="outlined"
+            value={numSets}
+            onChangeText={setNumSets}
+            keyboardType="number-pad"
+            style={inputStyle}
+            contentStyle={{ height: ui.controlHeight, textAlign: "center" }}
+            outlineStyle={outlineStyle}
+          />
+        </View>
+      </View>
+
+      {/* Action buttons */}
+      <View style={{ flexDirection: "row", gap: g * 0.5 }}>
         <Button
           mode="contained"
           onPress={handleSubmit}
-          style={{ flex: 1, borderRadius: ui.controlRadius }}
+          style={{ flex: 1, borderRadius: ui.controlRadius, height: ui.controlHeight }}
+          contentStyle={{ height: ui.controlHeight }}
           disabled={!name.trim()}
-          compact
         >
           {submitLabel}
         </Button>
@@ -155,9 +176,9 @@ export function ExerciseForm({
             mode="outlined"
             icon="delete-outline"
             onPress={onRemoveFromRoutine}
-            style={{ flex: 1, borderRadius: ui.controlRadius }}
+            style={{ flex: 1, borderRadius: ui.controlRadius, height: ui.controlHeight }}
+            contentStyle={{ height: ui.controlHeight }}
             textColor={colors.error}
-            compact
           >
             Delete
           </Button>
