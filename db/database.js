@@ -106,6 +106,13 @@ export async function initDatabase() {
   await ensureColumnExists({ tableName: 'nutrition_logs', columnName: 'food_name', columnDDL: "food_name TEXT DEFAULT ''" });
   await ensureColumnExists({ tableName: 'workouts', columnName: 'routine_id', columnDDL: "routine_id INTEGER" });
 
+  // Migration: add set_number to logs and num_sets to exercises for double progression.
+  await ensureColumnExists({ tableName: 'logs', columnName: 'set_number', columnDDL: "set_number INTEGER NOT NULL DEFAULT 1" });
+  await ensureColumnExists({ tableName: 'exercises', columnName: 'num_sets', columnDDL: "num_sets INTEGER NOT NULL DEFAULT 2" });
+
+  // Backfill set_number from set_type for existing rows.
+  await db.runAsync(`UPDATE logs SET set_number = 2 WHERE set_type = 'BACK_OFF' AND set_number != 2;`);
+
   // Seed routines & exercises from hardcoded SPLIT if tables are empty.
   await seedFromSplit();
 }
@@ -209,21 +216,20 @@ export async function getExercises() {
   return await db.getAllAsync(`SELECT * FROM exercises ORDER BY name ASC;`, []);
 }
 
-export async function createExercise({ name, unitType = 'reps', min = 8, max = 12, step = 1 }) {
+export async function createExercise({ name, unitType = 'reps', min = 8, max = 12, step = 1, numSets = 2 }) {
   const db = await getDb();
   await db.runAsync(
-    `INSERT INTO exercises (name, unit_type, min_val, max_val, step) VALUES (?, ?, ?, ?, ?);`,
-    [name.trim(), unitType, min, max, step],
+    `INSERT INTO exercises (name, unit_type, min_val, max_val, step, num_sets) VALUES (?, ?, ?, ?, ?, ?);`,
+    [name.trim(), unitType, min, max, step, numSets],
   );
 }
 
-export async function updateExercise({ oldName, name, unitType, min, max, step }) {
+export async function updateExercise({ oldName, name, unitType, min, max, step, numSets = 2 }) {
   const db = await getDb();
   const newName = name.trim();
-  // Update exercise definition.
   await db.runAsync(
-    `UPDATE exercises SET name = ?, unit_type = ?, min_val = ?, max_val = ?, step = ? WHERE name = ?;`,
-    [newName, unitType, min, max, step, oldName],
+    `UPDATE exercises SET name = ?, unit_type = ?, min_val = ?, max_val = ?, step = ?, num_sets = ? WHERE name = ?;`,
+    [newName, unitType, min, max, step, numSets, oldName],
   );
   // Cascade rename in logs if name changed.
   if (newName !== oldName) {
@@ -242,7 +248,7 @@ export async function getRoutineExercises(routineId) {
   const db = await getDb();
   return await db.getAllAsync(
     `SELECT re.id, re.routine_id, re.exercise_name, re.sort_order,
-            e.unit_type, e.min_val, e.max_val, e.step
+            e.unit_type, e.min_val, e.max_val, e.step, e.num_sets
      FROM routine_exercises re
      JOIN exercises e ON e.name = re.exercise_name
      WHERE re.routine_id = ?
@@ -301,13 +307,15 @@ export async function addLog({
   weight,
   unit, // 'kg' | 'lbs'
   reps,
-  setType, // 'TOP_SET' | 'BACK_OFF'
+  setType, // legacy — ignored if setNumber provided
+  setNumber,
 }) {
   const db = await getDb();
+  const sn = setNumber ?? (setType === 'BACK_OFF' ? 2 : 1);
   await db.runAsync(
-    `INSERT INTO logs (workout_id, exercise_name, date, weight, unit, reps, set_type)
-     VALUES (?, ?, ?, ?, ?, ?, ?);`,
-    [workoutId, exerciseName, dateISO, weight, unit || 'kg', reps, setType],
+    `INSERT INTO logs (workout_id, exercise_name, date, weight, unit, reps, set_type, set_number)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+    [workoutId, exerciseName, dateISO, weight, unit || 'kg', reps, setType || 'SET', sn],
   );
 }
 
@@ -328,31 +336,41 @@ export async function getDistinctExercises() {
   return rows.map((r) => r.name);
 }
 
-// Groups TOP_SET + BACK_OFF into a single "entry" (like your web app).
-export async function getExerciseEntries({ exerciseName, limit = 50 }) {
+// Returns individual sets ordered by date desc, then set_number asc.
+export async function getExerciseEntries({ exerciseName, limit = 200 }) {
   const db = await getDb();
   return await db.getAllAsync(
-    `SELECT
-        date,
-        weight,
-        unit,
-        MAX(CASE WHEN set_type = 'TOP_SET' THEN reps END) as top_reps,
-        MAX(CASE WHEN set_type = 'BACK_OFF' THEN reps END) as back_reps
+    `SELECT id, date, weight, unit, reps, set_number
       FROM logs
       WHERE exercise_name = ?
-      GROUP BY date, weight, unit
-      ORDER BY date DESC
+      ORDER BY date DESC, set_number ASC
       LIMIT ?;`,
     [exerciseName, limit],
   );
 }
 
-export async function getLastExerciseEntry({ exerciseName }) {
-  const rows = await getExerciseEntries({ exerciseName, limit: 1 });
-  return rows.length ? rows[0] : null;
+// Returns sets grouped by date for history display.
+export async function getExerciseEntriesGrouped({ exerciseName, limit = 100 }) {
+  const raw = await getExerciseEntries({ exerciseName, limit });
+  const grouped = [];
+  let current = null;
+  for (const row of raw) {
+    if (!current || current.date !== row.date) {
+      current = { date: row.date, sets: [] };
+      grouped.push(current);
+    }
+    current.sets.push({ weight: row.weight, reps: row.reps, setNumber: row.set_number });
+  }
+  return grouped;
 }
 
-export async function deleteExerciseEntry({ exerciseName, dateISO }) {
+// Returns the most recent session's sets as an array.
+export async function getLastExerciseSets({ exerciseName }) {
+  const grouped = await getExerciseEntriesGrouped({ exerciseName, limit: 50 });
+  return grouped.length ? grouped[0] : null;
+}
+
+export async function deleteExerciseSession({ exerciseName, dateISO }) {
   const db = await getDb();
   await db.runAsync(`DELETE FROM logs WHERE exercise_name = ? AND date = ?;`, [exerciseName, dateISO]);
 }
