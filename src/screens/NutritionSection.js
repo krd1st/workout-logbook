@@ -16,7 +16,7 @@ import {
   useTheme,
 } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { APP_COLORS, getAppColors } from "../constants/colors";
+import { APP_COLORS, BRAND, getAppColors } from "../constants/colors";
 import { useRelativeUi } from "../hooks/useRelativeUi";
 import { CenteredNutritionInput } from "../components/CenteredNutritionInput";
 import {
@@ -343,63 +343,22 @@ export function NutritionSection({ onBack }) {
   };
   const colFlex = (n) => ({ flex: n, minWidth: 0 });
 
-  const fixedHeaderStyle = React.useMemo(
-    () => ({
-      paddingTop: insets.top + ui.topPadding,
-      paddingLeft: insets.left + ui.gridPadding,
-      paddingRight: insets.right + ui.gridPadding,
-      paddingBottom: 0,
-      backgroundColor: colors.background,
-      zIndex: 1,
-      ...(Platform.OS === "ios"
-        ? {
-            shadowColor: APP_COLORS.shadow,
-            shadowOffset: { width: 0, height: ui.shadowOffsetH },
-            shadowOpacity: 0.08,
-            shadowRadius: ui.shadowRadius,
-          }
-        : { elevation: 3 }),
-    }),
-    [insets, colors.background, ui],
-  );
+  const S = 20;
 
   const translateY =
     namingEntryId != null && keyboardHeight > 0 ? -keyboardHeight * 0.15 : 0;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <View style={fixedHeaderStyle}>
-        <Pressable
-          onPress={onBack}
-          hitSlop={{
-            top: ui.hitSlopMd,
-            bottom: ui.hitSlopMd,
-            left: ui.hitSlopMd,
-            right: ui.hitSlopMd,
-          }}
-        >
-          <Surface
-            elevation={0}
-            style={{
-              paddingVertical: ui.headerPadding,
-              paddingHorizontal: 0,
-              borderRadius: ui.headerBorderRadius,
-              backgroundColor: colors.surface,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <Text variant="titleMedium">CALORIE INTAKE TRACKER</Text>
-            </View>
-          </Surface>
-        </Pressable>
+    <View style={{ flex: 1, backgroundColor: BRAND.bg }}>
+      {/* Header */}
+      <View style={{ paddingTop: insets.top + S, paddingBottom: S * 0.75, paddingHorizontal: S }}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "600", flex: 1 }}>Calorie Intake</Text>
+          <IconButton icon="calendar-month-outline" size={20} iconColor={BRAND.textSecondary} style={{ margin: 0 }} />
+        </View>
       </View>
-      <View style={{ flex: 1, backgroundColor: colors.surface }}>
+      <View style={{ height: 1, backgroundColor: BRAND.border }} />
+      <View style={{ flex: 1, backgroundColor: BRAND.bg }}>
         <View
           style={[
             { flex: 1, flexDirection: "column", transform: [{ translateY }] },

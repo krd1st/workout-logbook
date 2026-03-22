@@ -70,7 +70,7 @@ export const NumberWheel = React.memo(function NumberWheel({ values, value, onVa
   return (
     <View style={{ height: h, overflow: "hidden", backgroundColor: BRAND.surfaceHigh, borderRadius: 10 }} onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}>
       <Animated.FlatList ref={scrollRef} data={loopedData} keyExtractor={(item) => String(item.key)} renderItem={renderItem}
-        horizontal showsHorizontalScrollIndicator={false} snapToInterval={ITEM_W} decelerationRate="fast"
+        horizontal showsHorizontalScrollIndicator={false} snapToInterval={ITEM_W} decelerationRate={0.985}
         contentContainerStyle={{ paddingHorizontal: pad }} onScroll={onScroll} scrollEventThrottle={16}
         onScrollBeginDrag={() => { isUserDragging.current = true; }} onScrollEndDrag={() => { isUserDragging.current = false; }}
         onMomentumScrollEnd={(e) => handleScrollEnd(e.nativeEvent.contentOffset.x)}

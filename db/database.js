@@ -189,7 +189,10 @@ export async function startWorkout({ splitIndex, plannedName, startedAtISO, rout
 // --- Routines CRUD ---
 export async function getRoutines() {
   const db = await getDb();
-  return await db.getAllAsync(`SELECT * FROM routines ORDER BY sort_order ASC, id ASC;`, []);
+  return await db.getAllAsync(
+    `SELECT r.*, COUNT(re.id) as exercise_count
+     FROM routines r LEFT JOIN routine_exercises re ON re.routine_id = r.id
+     GROUP BY r.id ORDER BY r.sort_order ASC, r.id ASC;`, []);
 }
 
 export async function createRoutine({ name }) {
