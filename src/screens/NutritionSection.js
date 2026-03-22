@@ -16,7 +16,7 @@ import {
   useTheme,
 } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { APP_COLORS, BRAND, getAppColors } from "../constants/colors";
+import { BRAND, getAppColors } from "../constants/colors";
 import { useRelativeUi } from "../hooks/useRelativeUi";
 import { CenteredNutritionInput } from "../components/CenteredNutritionInput";
 import {

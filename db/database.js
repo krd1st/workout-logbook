@@ -110,8 +110,8 @@ export async function initDatabase() {
   await ensureColumnExists({ tableName: 'logs', columnName: 'set_number', columnDDL: "set_number INTEGER NOT NULL DEFAULT 1" });
   await ensureColumnExists({ tableName: 'exercises', columnName: 'num_sets', columnDDL: "num_sets INTEGER NOT NULL DEFAULT 2" });
   await ensureColumnExists({ tableName: 'exercises', columnName: 'weight_min', columnDDL: "weight_min REAL NOT NULL DEFAULT 0" });
-  await ensureColumnExists({ tableName: 'exercises', columnName: 'weight_max', columnDDL: "weight_max REAL NOT NULL DEFAULT 250" });
-  await ensureColumnExists({ tableName: 'exercises', columnName: 'weight_step', columnDDL: "weight_step REAL NOT NULL DEFAULT 1.25" });
+  await ensureColumnExists({ tableName: 'exercises', columnName: 'weight_max', columnDDL: "weight_max REAL NOT NULL DEFAULT 100" });
+  await ensureColumnExists({ tableName: 'exercises', columnName: 'weight_step', columnDDL: "weight_step REAL NOT NULL DEFAULT 2.5" });
 
   // Backfill set_number from set_type for existing rows.
   await db.runAsync(`UPDATE logs SET set_number = 2 WHERE set_type = 'BACK_OFF' AND set_number != 2;`);
@@ -161,22 +161,6 @@ async function seedFromSplit() {
   }
 }
 
-export async function getActiveWorkout() {
-  const db = await getDb();
-  return await db.getFirstAsync(
-    `SELECT * FROM workouts WHERE completed_at IS NULL ORDER BY started_at DESC LIMIT 1;`,
-    [],
-  );
-}
-
-export async function getLastCompletedWorkout() {
-  const db = await getDb();
-  return await db.getFirstAsync(
-    `SELECT * FROM workouts WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1;`,
-    [],
-  );
-}
-
 export async function startWorkout({ splitIndex, plannedName, startedAtISO, routineId }) {
   const db = await getDb();
   const res = await db.runAsync(
@@ -217,12 +201,7 @@ export async function deleteRoutine(id) {
 }
 
 // --- Exercises CRUD ---
-export async function getExercises() {
-  const db = await getDb();
-  return await db.getAllAsync(`SELECT * FROM exercises ORDER BY name ASC;`, []);
-}
-
-export async function createExercise({ name, unitType = 'reps', min = 8, max = 12, step = 1, numSets = 2, weightMin = 0, weightMax = 250, weightStep = 1.25 }) {
+export async function createExercise({ name, unitType = 'reps', min = 6, max = 12, step = 1, numSets = 2, weightMin = 0, weightMax = 100, weightStep = 2.5 }) {
   const db = await getDb();
   await db.runAsync(
     `INSERT INTO exercises (name, unit_type, min_val, max_val, step, num_sets, weight_min, weight_max, weight_step) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
@@ -230,7 +209,7 @@ export async function createExercise({ name, unitType = 'reps', min = 8, max = 1
   );
 }
 
-export async function updateExercise({ oldName, name, unitType, min, max, step, numSets = 2, weightMin = 0, weightMax = 250, weightStep = 1.25 }) {
+export async function updateExercise({ oldName, name, unitType, min, max, step, numSets = 2, weightMin = 0, weightMax = 100, weightStep = 2.5 }) {
   const db = await getDb();
   const newName = name.trim();
   await db.runAsync(
@@ -244,10 +223,6 @@ export async function updateExercise({ oldName, name, unitType, min, max, step, 
   }
 }
 
-export async function deleteExercise(name) {
-  const db = await getDb();
-  await db.runAsync(`DELETE FROM exercises WHERE name = ?;`, [name]);
-}
 
 // --- Routine ↔ Exercise junction ---
 export async function getRoutineExercises(routineId) {
@@ -302,11 +277,6 @@ export async function reorderRoutineExercises(orderedIds) {
   }
 }
 
-export async function finishWorkout({ workoutId, completedAtISO }) {
-  const db = await getDb();
-  await db.runAsync(`UPDATE workouts SET completed_at = ? WHERE id = ?;`, [completedAtISO, workoutId]);
-}
-
 export async function addLog({
   workoutId,
   exerciseName,
@@ -322,29 +292,12 @@ export async function addLog({
   await db.runAsync(
     `INSERT INTO logs (workout_id, exercise_name, date, weight, unit, reps, set_type, set_number)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
-    [workoutId, exerciseName, dateISO, weight, unit || 'kg', reps, setType || 'SET', sn],
+    [workoutId, exerciseName, dateISO, weight, unit || 'kg', reps, setType || 'TOP_SET', sn],
   );
-}
-
-export async function getWorkoutLogs(workoutId) {
-  const db = await getDb();
-  return await db.getAllAsync(
-    `SELECT * FROM logs WHERE workout_id = ? ORDER BY date DESC, id DESC;`,
-    [workoutId],
-  );
-}
-
-export async function getDistinctExercises() {
-  const db = await getDb();
-  const rows = await db.getAllAsync(
-    `SELECT exercise_name as name FROM logs GROUP BY exercise_name ORDER BY exercise_name ASC;`,
-    [],
-  );
-  return rows.map((r) => r.name);
 }
 
 // Returns individual sets ordered by date desc, then set_number asc.
-export async function getExerciseEntries({ exerciseName, limit = 200 }) {
+async function getExerciseEntries({ exerciseName, limit = 200 }) {
   const db = await getDb();
   return await db.getAllAsync(
     `SELECT id, date, weight, unit, reps, set_number
@@ -380,19 +333,6 @@ export async function getLastExerciseSets({ exerciseName }) {
 export async function deleteExerciseSession({ exerciseName, dateISO }) {
   const db = await getDb();
   await db.runAsync(`DELETE FROM logs WHERE exercise_name = ? AND date = ?;`, [exerciseName, dateISO]);
-}
-
-export async function getExerciseHistory({ exerciseName, limit = 100 }) {
-  const db = await getDb();
-  return await db.getAllAsync(
-    `SELECT l.*, w.split_index, w.planned_name, w.completed_at
-     FROM logs l
-     JOIN workouts w ON w.id = l.workout_id
-     WHERE l.exercise_name = ?
-     ORDER BY l.date DESC, l.id DESC
-     LIMIT ?;`,
-    [exerciseName, limit],
-  );
 }
 
 // --- Nutrition (standalone calorie/macros log) ---
