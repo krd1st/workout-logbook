@@ -22,13 +22,6 @@ export const BASE_CONTROL_HEIGHT = 44;
 export const BASE_CONTROL_RADIUS = 24;
 export const BASE_CONTROL_BORDER_WIDTH = 1;
 
-// Milestone bar
-export const BASE_BAR_HEIGHT = 44;
-export const BASE_TRACK_HEIGHT = 5;
-export const BASE_DOT_SIZE = 10;
-export const BASE_SELECTED_DOT_SIZE = 20;
-export const BASE_DOT_HIT_PADDING = 8;
-
 // Header
 export const BASE_HEADER_PADDING = 16;
 

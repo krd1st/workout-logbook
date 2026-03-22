@@ -109,6 +109,9 @@ export async function initDatabase() {
   // Migration: add set_number to logs and num_sets to exercises for double progression.
   await ensureColumnExists({ tableName: 'logs', columnName: 'set_number', columnDDL: "set_number INTEGER NOT NULL DEFAULT 1" });
   await ensureColumnExists({ tableName: 'exercises', columnName: 'num_sets', columnDDL: "num_sets INTEGER NOT NULL DEFAULT 2" });
+  await ensureColumnExists({ tableName: 'exercises', columnName: 'weight_min', columnDDL: "weight_min REAL NOT NULL DEFAULT 0" });
+  await ensureColumnExists({ tableName: 'exercises', columnName: 'weight_max', columnDDL: "weight_max REAL NOT NULL DEFAULT 250" });
+  await ensureColumnExists({ tableName: 'exercises', columnName: 'weight_step', columnDDL: "weight_step REAL NOT NULL DEFAULT 1.25" });
 
   // Backfill set_number from set_type for existing rows.
   await db.runAsync(`UPDATE logs SET set_number = 2 WHERE set_type = 'BACK_OFF' AND set_number != 2;`);
@@ -216,20 +219,20 @@ export async function getExercises() {
   return await db.getAllAsync(`SELECT * FROM exercises ORDER BY name ASC;`, []);
 }
 
-export async function createExercise({ name, unitType = 'reps', min = 8, max = 12, step = 1, numSets = 2 }) {
+export async function createExercise({ name, unitType = 'reps', min = 8, max = 12, step = 1, numSets = 2, weightMin = 0, weightMax = 250, weightStep = 1.25 }) {
   const db = await getDb();
   await db.runAsync(
-    `INSERT INTO exercises (name, unit_type, min_val, max_val, step, num_sets) VALUES (?, ?, ?, ?, ?, ?);`,
-    [name.trim(), unitType, min, max, step, numSets],
+    `INSERT INTO exercises (name, unit_type, min_val, max_val, step, num_sets, weight_min, weight_max, weight_step) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+    [name.trim(), unitType, min, max, step, numSets, weightMin, weightMax, weightStep],
   );
 }
 
-export async function updateExercise({ oldName, name, unitType, min, max, step, numSets = 2 }) {
+export async function updateExercise({ oldName, name, unitType, min, max, step, numSets = 2, weightMin = 0, weightMax = 250, weightStep = 1.25 }) {
   const db = await getDb();
   const newName = name.trim();
   await db.runAsync(
-    `UPDATE exercises SET name = ?, unit_type = ?, min_val = ?, max_val = ?, step = ?, num_sets = ? WHERE name = ?;`,
-    [newName, unitType, min, max, step, numSets, oldName],
+    `UPDATE exercises SET name = ?, unit_type = ?, min_val = ?, max_val = ?, step = ?, num_sets = ?, weight_min = ?, weight_max = ?, weight_step = ? WHERE name = ?;`,
+    [newName, unitType, min, max, step, numSets, weightMin, weightMax, weightStep, oldName],
   );
   // Cascade rename in logs if name changed.
   if (newName !== oldName) {
@@ -248,7 +251,8 @@ export async function getRoutineExercises(routineId) {
   const db = await getDb();
   return await db.getAllAsync(
     `SELECT re.id, re.routine_id, re.exercise_name, re.sort_order,
-            e.unit_type, e.min_val, e.max_val, e.step, e.num_sets
+            e.unit_type, e.min_val, e.max_val, e.step, e.num_sets,
+            e.weight_min, e.weight_max, e.weight_step
      FROM routine_exercises re
      JOIN exercises e ON e.name = re.exercise_name
      WHERE re.routine_id = ?

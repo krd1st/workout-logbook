@@ -1,785 +1,383 @@
 import * as React from "react";
 import {
-  BackHandler,
-  Keyboard,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
+  BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, View,
 } from "react-native";
 import {
-  ActivityIndicator,
-  Button,
-  IconButton,
-  Surface,
-  Text,
-  TextInput,
-  useTheme,
+  ActivityIndicator, IconButton, Text, TextInput,
 } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { APP_COLORS, getAppColors } from "../constants/colors";
+import { BRAND } from "../constants/colors";
 import { clamp, formatDateEuropean, toISO } from "../utils/helpers";
-import { useRelativeUi } from "../hooks/useRelativeUi";
 import { DayButton } from "../components/DayButton";
 import { ExerciseCard } from "../components/ExerciseCard";
 import { ExerciseForm } from "../components/ExerciseForm";
-import { SetRow } from "../components/SetRow";
+import { NumberWheel } from "../components/NumberWheel";
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
 import * as Haptics from "expo-haptics";
 import {
-  initDatabase,
-  startWorkout,
-  getRoutines,
-  createRoutine,
-  updateRoutine,
-  deleteRoutine,
-  getRoutineExercises,
-  addExerciseToRoutine,
-  removeExerciseFromRoutine,
-  createExercise,
-  reorderRoutines,
-  reorderRoutineExercises,
-  addLog,
-  deleteExerciseSession,
-  getExerciseEntriesGrouped,
-  getLastExerciseSets,
-  updateExercise,
+  initDatabase, startWorkout, getRoutines, createRoutine, updateRoutine, deleteRoutine,
+  getRoutineExercises, addExerciseToRoutine, removeExerciseFromRoutine, createExercise,
+  reorderRoutines, reorderRoutineExercises, addLog, deleteExerciseSession,
+  getExerciseEntriesGrouped, getLastExerciseSets, updateExercise,
 } from "../../db/database";
 
-export function RoutineScreen({ dataReady = true, onBack }) {
-  const [loading, setLoading] = React.useState(!dataReady);
-  const [routines, setRoutines] = React.useState([]);
+const S = 20; // spacing unit
+
+/* ── Pill Button ── */
+function Pill({ label, onPress, active, danger, icon }) {
+  return (
+    <Pressable onPress={onPress} style={{ flex: 1, height: 44, borderRadius: 12, justifyContent: "center", alignItems: "center", flexDirection: "row", gap: 6, backgroundColor: active ? BRAND.accent : danger ? "transparent" : BRAND.surfaceHigh, borderWidth: danger ? 1 : 0, borderColor: danger ? BRAND.error : undefined }}>
+      {icon && <IconButton icon={icon} size={16} iconColor={active ? BRAND.bg : danger ? BRAND.error : BRAND.textSecondary} style={{ margin: 0, width: 16, height: 16 }} />}
+      <Text style={{ color: active ? BRAND.bg : danger ? BRAND.error : BRAND.text, fontWeight: active ? "700" : "500", fontSize: 13 }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBack }) {
+  const [loading, setLoading] = React.useState(!dataReady || !preloadedRoutines);
+  const [routines, setRoutines] = React.useState(preloadedRoutines ?? []);
   const [currentRoutine, setCurrentRoutine] = React.useState(null);
   const [routineExercises, setRoutineExercises] = React.useState([]);
   const [workoutId, setWorkoutId] = React.useState(null);
   const [refreshToken, setRefreshToken] = React.useState(0);
   const insets = useSafeAreaInsets();
-  const theme = useTheme();
-  const colors = React.useMemo(() => getAppColors(theme), [theme]);
-  const ui = useRelativeUi();
 
-  // UI state for inline forms
   const [showAddRoutine, setShowAddRoutine] = React.useState(false);
   const [newRoutineName, setNewRoutineName] = React.useState("");
-  const [editingRoutineId, setEditingRoutineId] = React.useState(null);
-  const [editRoutineName, setEditRoutineName] = React.useState("");
   const [showAddExercise, setShowAddExercise] = React.useState(false);
   const [editingHeaderName, setEditingHeaderName] = React.useState(false);
   const [headerNameDraft, setHeaderNameDraft] = React.useState("");
   const [confirmAction, setConfirmAction] = React.useState(null);
-  const [listAreaHeight, setListAreaHeight] = React.useState(0);
-  const [exerciseAreaHeight, setExerciseAreaHeight] = React.useState(0);
-  const [exFooterMeasured, setExFooterMeasured] = React.useState(0);
-  const [routineFooterMeasured, setRoutineFooterMeasured] = React.useState(0);
 
-  // Exercise detail modal state
   const [selectedExercise, setSelectedExercise] = React.useState(null);
-  const [modalTab, setModalTab] = React.useState("log"); // "log" | "edit" | "history"
+  const [modalTab, setModalTab] = React.useState("log");
   const [modalLoading, setModalLoading] = React.useState(false);
-  const [modalHistory, setModalHistory] = React.useState([]); // grouped sessions
-  // sets: array of { weight: string, reps: number }
+  const [modalHistory, setModalHistory] = React.useState([]);
   const [sets, setSets] = React.useState([]);
+  const [editingExName, setEditingExName] = React.useState(false);
+  const [exNameDraft, setExNameDraft] = React.useState("");
 
-  const loadRoutines = React.useCallback(async () => {
-    const rows = await getRoutines();
-    setRoutines(rows);
-  }, []);
-
-  const loadRoutineExercises = React.useCallback(async (routineId) => {
-    const rows = await getRoutineExercises(routineId);
-    setRoutineExercises(rows);
-  }, []);
+  const loadRoutines = React.useCallback(async () => setRoutines(await getRoutines()), []);
+  const loadRoutineExercises = React.useCallback(async (id) => setRoutineExercises(await getRoutineExercises(id)), []);
 
   React.useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await initDatabase();
-        await loadRoutines();
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [loadRoutines]);
+    if (dataReady && preloadedRoutines) { setLoading(false); return; }
+    let c = false;
+    (async () => { if (!dataReady) await initDatabase(); await loadRoutines(); if (!c) setLoading(false); })();
+    return () => { c = true; };
+  }, [loadRoutines, dataReady, preloadedRoutines]);
 
-  const footerPadding = insets.bottom + ui.gridPadding;
-
-  const fixedHeaderStyle = React.useMemo(
-    () => ({
-      paddingTop: insets.top + ui.gridPadding,
-      paddingLeft: insets.left + ui.gridPadding,
-      paddingRight: insets.right + ui.gridPadding,
-      paddingBottom: ui.gridPadding,
-      backgroundColor: colors.background,
-      zIndex: 1,
-      ...(Platform.OS === "ios"
-        ? {
-            shadowColor: APP_COLORS.shadow,
-            shadowOffset: { width: 0, height: ui.shadowOffsetH },
-            shadowOpacity: 0.08,
-            shadowRadius: ui.shadowRadius,
-          }
-        : { elevation: 3 }),
-    }),
-    [insets, colors.background, ui],
-  );
-
-  // --- Exercise modal helpers ---
-  const refreshModal = React.useCallback(async (exName) => {
+  /* ── Exercise modal ── */
+  const refreshModal = React.useCallback(async (n) => {
     setModalLoading(true);
-    try {
-      const hist = await getExerciseEntriesGrouped({ exerciseName: exName, limit: 500 });
-      setModalHistory(hist);
-    } finally {
-      setModalLoading(false);
-    }
+    try { setModalHistory(await getExerciseEntriesGrouped({ exerciseName: n, limit: 500 })); } finally { setModalLoading(false); }
   }, []);
 
   function openExerciseModal(re) {
-    setSelectedExercise(re);
-    setModalTab("log");
-    setModalLoading(true);
-
-    const numSets = re.num_sets ?? 2;
-    const scheme = { min: re.min_val ?? 8, max: re.max_val ?? 12 };
-
+    setModalTab("log"); setEditingExName(false);
+    const n = re.num_sets ?? 2, sch = { min: re.min_val ?? 8, max: re.max_val ?? 12 };
     (async () => {
-      const [lastSession, hist] = await Promise.all([
-        getLastExerciseSets({ exerciseName: re.exercise_name }),
-        getExerciseEntriesGrouped({ exerciseName: re.exercise_name, limit: 500 }),
-      ]);
+      const [last, hist] = await Promise.all([getLastExerciseSets({ exerciseName: re.exercise_name }), getExerciseEntriesGrouped({ exerciseName: re.exercise_name, limit: 500 })]);
       setModalHistory(hist);
-
-      // Pre-fill sets from last session or create empty ones
-      const prefilled = [];
-      for (let i = 0; i < numSets; i++) {
-        const prev = lastSession?.sets?.[i];
-        prefilled.push({
-          weight: prev?.weight != null ? String(prev.weight) : "0",
-          reps: prev?.reps != null ? clamp(Number(prev.reps), scheme.min, scheme.max) : scheme.min,
-        });
-      }
-      setSets(prefilled);
-      setModalLoading(false);
+      const s = [];
+      for (let i = 0; i < n; i++) { const p = last?.sets?.[i]; s.push({ weight: p?.weight != null ? String(p.weight) : "0", reps: p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min }); }
+      setSets(s); setSelectedExercise(re);
     })();
   }
-
-  function closeExerciseModal() {
-    setSelectedExercise(null);
-  }
+  function closeExerciseModal() { setSelectedExercise(null); setEditingExName(false); }
 
   const modalScheme = React.useMemo(() => {
     if (!selectedExercise) return { min: 8, max: 12, step: 1, unitShort: "reps" };
-    return {
-      min: selectedExercise.min_val ?? 8,
-      max: selectedExercise.max_val ?? 12,
-      step: selectedExercise.step ?? 1,
-      unitShort: selectedExercise.unit_type === "sec" ? "sec" : "reps",
-    };
+    return { min: selectedExercise.min_val ?? 8, max: selectedExercise.max_val ?? 12, step: selectedExercise.step ?? 1, unitShort: selectedExercise.unit_type === "sec" ? "sec" : "reps" };
   }, [selectedExercise]);
 
-  function updateSet(index, field, value) {
-    setSets((prev) => prev.map((s, i) => i === index ? { ...s, [field]: value } : s));
-  }
+  const weightValues = React.useMemo(() => {
+    if (!selectedExercise) return [0];
+    const a = []; for (let v = selectedExercise.weight_min ?? 0; v <= (selectedExercise.weight_max ?? 250); v = Math.round((v + (selectedExercise.weight_step ?? 1.25)) * 100) / 100) a.push(v); return a;
+  }, [selectedExercise]);
+  const weightLabel = React.useCallback((v) => v % 1 === 0 ? String(v) : v.toFixed(2), []);
+  const repsValues = React.useMemo(() => { const a = []; for (let v = modalScheme.min; v <= modalScheme.max; v += modalScheme.step) a.push(v); return a; }, [modalScheme]);
 
-  function addSet() {
-    setSets((prev) => [...prev, { weight: prev.length ? prev[prev.length - 1].weight : "0", reps: modalScheme.min }]);
-  }
+  function updateSet(i, f, v) { setSets((p) => p.map((s, j) => j === i ? { ...s, [f]: v } : s)); }
+  function addSet() { setSets((p) => [...p, { weight: p.length ? p[p.length - 1].weight : "0", reps: modalScheme.min }]); }
+  function removeSet(i) { setSets((p) => p.filter((_, j) => j !== i)); }
 
   async function onSaveLog() {
-    if (!selectedExercise || !workoutId || sets.length === 0) return;
-    const dateISO = toISO();
-    for (let i = 0; i < sets.length; i++) {
-      const w = Number(String(sets[i].weight).replace(",", "."));
-      if (!Number.isFinite(w) || w < 0) continue;
-      await addLog({
-        workoutId,
-        exerciseName: selectedExercise.exercise_name,
-        dateISO,
-        weight: w,
-        unit: "kg",
-        reps: clamp(Math.trunc(sets[i].reps), modalScheme.min, modalScheme.max),
-        setNumber: i + 1,
-      });
-    }
-    await refreshModal(selectedExercise.exercise_name);
-    setRefreshToken((x) => x + 1);
+    if (!selectedExercise || !workoutId || !sets.length) return;
+    const d = toISO();
+    for (let i = 0; i < sets.length; i++) { const w = Number(String(sets[i].weight).replace(",", ".")); if (!Number.isFinite(w) || w < 0) continue; await addLog({ workoutId, exerciseName: selectedExercise.exercise_name, dateISO: d, weight: w, unit: "kg", reps: clamp(Math.trunc(sets[i].reps), modalScheme.min, modalScheme.max), setNumber: i + 1 }); }
+    await refreshModal(selectedExercise.exercise_name); setRefreshToken((x) => x + 1);
   }
+  async function onDeleteSession(d) { if (!selectedExercise) return; await deleteExerciseSession({ exerciseName: selectedExercise.exercise_name, dateISO: d }); await refreshModal(selectedExercise.exercise_name); setRefreshToken((x) => x + 1); }
 
-  async function onDeleteSession(dateISO) {
+  async function handleEditExercise({ name, unitType, min, max, step, numSets, weightMin, weightMax, weightStep }) {
     if (!selectedExercise) return;
-    await deleteExerciseSession({ exerciseName: selectedExercise.exercise_name, dateISO });
-    await refreshModal(selectedExercise.exercise_name);
-    setRefreshToken((x) => x + 1);
+    await updateExercise({ oldName: selectedExercise.exercise_name, name, unitType, min, max, step, numSets, weightMin, weightMax, weightStep });
+    const u = { ...selectedExercise, exercise_name: name, unit_type: unitType, min_val: min, max_val: max, step, num_sets: numSets, weight_min: weightMin, weight_max: weightMax, weight_step: weightStep };
+    setSelectedExercise(u);
+    setSets((p) => { const r = []; for (let i = 0; i < numSets; i++) r.push(p[i] ?? { weight: "0", reps: min }); return r; });
+    setModalTab("log");
+    if (currentRoutine) await loadRoutineExercises(currentRoutine.id); setRefreshToken((x) => x + 1);
   }
 
-  async function handleEditExercise({ name, unitType, min, max, step, numSets }) {
-    if (!selectedExercise) return;
-    await updateExercise({ oldName: selectedExercise.exercise_name, name, unitType, min, max, step, numSets });
-    closeExerciseModal();
-    if (currentRoutine) await loadRoutineExercises(currentRoutine.id);
-    setRefreshToken((x) => x + 1);
+  /* ── Routine CRUD ── */
+  async function openDay(r) {
+    const [ex, wId] = await Promise.all([getRoutineExercises(r.id), startWorkout({ splitIndex: r.sort_order, plannedName: r.name, startedAtISO: toISO(), routineId: r.id })]);
+    setRoutineExercises(ex); setWorkoutId(wId); setShowAddExercise(false); setRefreshToken((x) => x + 1); setCurrentRoutine(r);
   }
+  function closeDay() { setCurrentRoutine(null); setWorkoutId(null); setRoutineExercises([]); }
+  async function handleCreateRoutine() { const t = newRoutineName.trim(); if (!t) return; await createRoutine({ name: t }); setNewRoutineName(""); setShowAddRoutine(false); await loadRoutines(); }
+  function handleDeleteRoutine(r) { setConfirmAction({ title: "Delete Routine", message: "Are you sure?", label: "Delete", onConfirm: async () => { setConfirmAction(null); await deleteRoutine(r.id); if (currentRoutine?.id === r.id) closeDay(); await loadRoutines(); } }); }
+  async function handleAddExerciseSubmit(d) { try { await createExercise(d); } catch {} await addExerciseToRoutine({ routineId: currentRoutine.id, exerciseName: d.name }); setShowAddExercise(false); await loadRoutineExercises(currentRoutine.id); }
+  function handleRemoveExercise(re) { setConfirmAction({ title: "Remove Exercise", message: "Are you sure?", label: "Remove", onConfirm: async () => { setConfirmAction(null); closeExerciseModal(); await removeExerciseFromRoutine(re.id); await loadRoutineExercises(currentRoutine.id); } }); }
+  async function handleRoutineReorder(d) { requestAnimationFrame(() => setRoutines(d)); await reorderRoutines(d.map((r) => r.id)); }
+  async function handleExerciseReorder(d) { requestAnimationFrame(() => setRoutineExercises(d)); await reorderRoutineExercises(d.map((r) => r.id)); }
 
-  // --- Routine CRUD ---
-  async function openDay(routine) {
-    setCurrentRoutine(routine);
-    setWorkoutId(null);
-    setShowAddExercise(false);
-    await loadRoutineExercises(routine.id);
-    startWorkout({
-      splitIndex: routine.sort_order,
-      plannedName: routine.name,
-      startedAtISO: toISO(),
-      routineId: routine.id,
-    }).then((id) => {
-      setWorkoutId(id);
-      setRefreshToken((x) => x + 1);
-    });
-  }
+  const saveHeaderName = React.useCallback(async () => {
+    const t = headerNameDraft.trim();
+    if (t && t !== currentRoutine?.name) { await updateRoutine({ id: currentRoutine.id, name: t }); setCurrentRoutine((r) => ({ ...r, name: t })); await loadRoutines(); }
+    setEditingHeaderName(false);
+  }, [headerNameDraft, currentRoutine, loadRoutines]);
 
-  function closeDay() {
-    setCurrentRoutine(null);
-    setWorkoutId(null);
-    setRoutineExercises([]);
-  }
-
-  async function handleCreateRoutine() {
-    const trimmed = newRoutineName.trim();
-    if (!trimmed) return;
-    await createRoutine({ name: trimmed });
-    setNewRoutineName("");
-    setShowAddRoutine(false);
-    await loadRoutines();
-  }
-
-  async function handleSaveRoutineName() {
-    const trimmed = editRoutineName.trim();
-    if (!trimmed || !editingRoutineId) return;
-    await updateRoutine({ id: editingRoutineId, name: trimmed });
-    setEditingRoutineId(null);
-    setEditRoutineName("");
-    if (currentRoutine?.id === editingRoutineId) {
-      setCurrentRoutine((r) => ({ ...r, name: trimmed }));
+  const saveExName = React.useCallback(async () => {
+    const t = exNameDraft.trim(); setEditingExName(false);
+    if (t && t !== selectedExercise?.exercise_name) {
+      const se = selectedExercise;
+      await updateExercise({ oldName: se.exercise_name, name: t, unitType: se.unit_type, min: se.min_val, max: se.max_val, step: se.step, numSets: se.num_sets, weightMin: se.weight_min, weightMax: se.weight_max, weightStep: se.weight_step });
+      setSelectedExercise((p) => ({ ...p, exercise_name: t })); if (currentRoutine) await loadRoutineExercises(currentRoutine.id); setRefreshToken((x) => x + 1);
     }
-    await loadRoutines();
-  }
-
-  function handleDeleteRoutine(routine) {
-    setConfirmAction({
-      title: "Delete Routine",
-      message: "Are you sure?",
-      label: "Delete",
-      onConfirm: async () => {
-        setConfirmAction(null);
-        await deleteRoutine(routine.id);
-        if (currentRoutine?.id === routine.id) closeDay();
-        await loadRoutines();
-      },
-    });
-  }
-
-  async function handleAddExerciseSubmit({ name, unitType, min, max, step, numSets }) {
-    try {
-      await createExercise({ name, unitType, min, max, step, numSets });
-    } catch {
-      // Already exists — that's fine.
-    }
-    await addExerciseToRoutine({ routineId: currentRoutine.id, exerciseName: name });
-    setShowAddExercise(false);
-    await loadRoutineExercises(currentRoutine.id);
-  }
-
-  function handleRemoveExercise(re) {
-    setConfirmAction({
-      title: "Remove Exercise",
-      message: "Are you sure?",
-      label: "Remove",
-      onConfirm: async () => {
-        setConfirmAction(null);
-        closeExerciseModal();
-        await removeExerciseFromRoutine(re.id);
-        await loadRoutineExercises(currentRoutine.id);
-      },
-    });
-  }
-
-  async function handleRoutineReorder(reordered) {
-    requestAnimationFrame(() => setRoutines(reordered));
-    await reorderRoutines(reordered.map((r) => r.id));
-  }
-
-  async function handleExerciseReorder(reordered) {
-    requestAnimationFrame(() => setRoutineExercises(reordered));
-    await reorderRoutineExercises(reordered.map((re) => re.id));
-  }
+  }, [exNameDraft, selectedExercise, currentRoutine, loadRoutineExercises]);
 
   React.useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (confirmAction !== null) {
-        setConfirmAction(null);
-        return true;
-      }
-      if (selectedExercise !== null) {
-        closeExerciseModal();
-        return true;
-      }
-      if (showAddExercise) {
-        setShowAddExercise(false);
-        return true;
-      }
-      if (currentRoutine !== null) {
-        closeDay();
-        return true;
-      }
-      if (onBack) {
-        onBack();
-        return true;
-      }
+      if (confirmAction) { setConfirmAction(null); return true; }
+      if (showAddExercise) { setShowAddExercise(false); return true; }
+      if (currentRoutine) { closeDay(); return true; }
+      if (onBack) { onBack(); return true; }
       return false;
     });
     return () => sub.remove();
-  }, [currentRoutine, onBack, showAddExercise, selectedExercise, confirmAction]);
+  }, [currentRoutine, onBack, showAddExercise, confirmAction]);
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center" }}>
-        <ActivityIndicator />
+  if (loading) return <View style={{ flex: 1, backgroundColor: BRAND.bg }} />;
+
+  /* ── Render items ── */
+  const renderRoutineItem = React.useCallback(({ item, drag }) => (
+    <ScaleDecorator activeScale={1.02}>
+      <View style={{ marginBottom: 12 }}>
+        <DayButton title={item.name} onPress={() => openDay(item)} onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); drag(); }} />
       </View>
-    );
-  }
+    </ScaleDecorator>
+  ), []);
 
-  // --- Height calculations ---
-  const MAX_FILL = 7;
-  const listTopPad = ui.gridPadding;
-  const innerHeight = listAreaHeight - routineFooterMeasured - listTopPad - insets.top;
-  const countForHeight = (n) => Math.max(n, 1);
-  const itemHeightFor = (n) => Math.max((innerHeight - n * ui.gridPadding) / n, 48);
-  const fixedItemHeight = itemHeightFor(MAX_FILL);
-  const nonScrollItemHeight = itemHeightFor(countForHeight(routines.length));
-  const itemHeight = (listAreaHeight > 0 && routineFooterMeasured > 0)
-    ? (routines.length > MAX_FILL ? fixedItemHeight : nonScrollItemHeight)
-    : null;
+  const renderExerciseItem = React.useCallback(({ item: re, drag }) => (
+    <ScaleDecorator activeScale={1.02}>
+      <View style={{ marginBottom: 12 }}>
+        <ExerciseCard workoutId={workoutId} exerciseName={re.exercise_name} refreshToken={refreshToken}
+          exerciseData={{ name: re.exercise_name, unit_type: re.unit_type, min_val: re.min_val, max_val: re.max_val, step: re.step }}
+          onPress={() => openExerciseModal(re)} onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); drag(); }} />
+      </View>
+    </ScaleDecorator>
+  ), [workoutId, refreshToken]);
 
-  const exInnerHeight = exerciseAreaHeight - exFooterMeasured - ui.gridPadding;
-  const totalExGaps = MAX_FILL * ui.gridPadding;
-  const exerciseItemHeight = (exerciseAreaHeight > 0 && exFooterMeasured > 0)
-    ? Math.max(Math.ceil((exInnerHeight - totalExGaps) / MAX_FILL), 48)
-    : null;
-
-  const renderRoutineItem = React.useCallback(({ item, drag }) => {
-    return (
-      <ScaleDecorator activeScale={1.03}>
-        <View style={{ height: itemHeight ?? undefined, marginBottom: ui.gridPadding }}>
-          <DayButton
-            dayIndex={0}
-            title={item.name}
-            subtitle=""
-            onPress={() => openDay(item)}
-            onLongPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              drag();
-            }}
-          />
-        </View>
-      </ScaleDecorator>
-    );
-  }, [itemHeight, ui.gridPadding]);
-
-  const renderExerciseItem = React.useCallback(({ item: re, drag }) => {
-    return (
-      <ScaleDecorator activeScale={1.03}>
-        <View style={{ height: exerciseItemHeight ?? undefined, marginBottom: ui.gridPadding }}>
-          <ExerciseCard
-            workoutId={workoutId}
-            exerciseName={re.exercise_name}
-            exerciseData={{
-              name: re.exercise_name,
-              unit_type: re.unit_type,
-              min_val: re.min_val,
-              max_val: re.max_val,
-              step: re.step,
-            }}
-            refreshToken={refreshToken}
-            onPress={() => openExerciseModal(re)}
-            onLongPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              drag();
-            }}
-          />
-        </View>
-      </ScaleDecorator>
-    );
-  }, [exerciseItemHeight, ui.gridPadding, workoutId, refreshToken]);
-
-  // --- Shared modal backdrop helpers ---
-  const smallModal = (visible, onClose, children) => (
+  /* ── Modals ── */
+  const overlay = (visible, onClose, children) => (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={{ flex: 1 }}>
-        <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)" }} onPress={() => { Keyboard.dismiss(); onClose(); }} />
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }} pointerEvents="box-none">
-          <Surface elevation={3} style={{ width: "80%", maxWidth: 340, borderRadius: ui.cardBorderRadius, padding: ui.gridPadding * 1.5 }}>
-            {children}
-          </Surface>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => { Keyboard.dismiss(); onClose(); }}><View style={{ flex: 1, backgroundColor: BRAND.overlay }} /></Pressable>
+        <View style={{ ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center" }} pointerEvents="box-none">
+          {children}
         </View>
       </View>
     </Modal>
   );
 
-  const largeModal = (visible, onClose, children) => (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+  const handleExerciseModalBack = React.useCallback(() => {
+    if (editingExName) { setEditingExName(false); return; }
+    if (modalTab !== "log") { setModalTab("log"); return; }
+    closeExerciseModal();
+  }, [modalTab, editingExName]);
+
+  /* ── Exercise Modal ── */
+  const exerciseModal = (
+    <Modal visible={selectedExercise !== null} transparent animationType="fade" statusBarTranslucent onRequestClose={handleExerciseModalBack}>
       <View style={{ flex: 1 }}>
-        {/* Backdrop — separate layer so it doesn't wrap content */}
-        <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.5)" }} onPress={() => { Keyboard.dismiss(); onClose(); }} />
-        {/* Content — not a child of Pressable, so ScrollView works */}
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }} pointerEvents="box-none">
-          <Surface elevation={3} style={{ width: "92%", aspectRatio: 3 / 4, borderRadius: ui.cardBorderRadius, padding: ui.gridPadding * 1.5 }}>
-            {children}
-          </Surface>
-        </View>
-      </View>
-    </Modal>
-  );
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => { Keyboard.dismiss(); closeExerciseModal(); }}><View style={{ flex: 1, backgroundColor: BRAND.overlay }} /></Pressable>
+        <View style={{ ...StyleSheet.absoluteFillObject, justifyContent: "flex-end" }} pointerEvents="box-none">
+          <View style={{ height: "80%", backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: S, paddingBottom: insets.bottom + S }}>
+            {selectedExercise && (
+              <View style={{ flex: 1 }}>
+                {/* Handle bar */}
+                <View style={{ alignItems: "center", marginBottom: S }}>
+                  <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: BRAND.border }} />
+                </View>
 
-  // --- Confirm modal ---
-  const confirmModal = smallModal(
-    confirmAction !== null,
-    () => setConfirmAction(null),
-    <>
-      <Text variant="titleMedium" style={{ marginBottom: ui.gridPadding * 0.5 }}>
-        {confirmAction?.title}
-      </Text>
-      <Text variant="bodyMedium" style={{ marginBottom: ui.gridPadding }}>
-        {confirmAction?.message}
-      </Text>
-      <View style={{ flexDirection: "row", gap: ui.gridPadding * 0.5 }}>
-        <Button mode="outlined" onPress={() => setConfirmAction(null)} style={{ flex: 1, borderRadius: ui.controlRadius }}>
-          Cancel
-        </Button>
-        <Button mode="contained" onPress={confirmAction?.onConfirm} style={{ flex: 1, borderRadius: ui.controlRadius }} buttonColor={colors.error}>
-          {confirmAction?.label}
-        </Button>
-      </View>
-    </>,
-  );
+                {/* Name */}
+                {editingExName ? (
+                  <TextInput mode="flat" value={exNameDraft} onChangeText={setExNameDraft} autoFocus onSubmitEditing={saveExName} onBlur={saveExName}
+                    style={{ backgroundColor: "transparent", fontSize: 22, fontWeight: "600", paddingHorizontal: 0, paddingVertical: 0, margin: 0, minHeight: 0, height: 28, marginBottom: S * 1.5 }}
+                    contentStyle={{ paddingHorizontal: 0, paddingVertical: 0 }} textColor={BRAND.text} underlineStyle={{ display: "none" }} activeUnderlineColor="transparent" />
+                ) : (
+                  <Pressable disabled={modalTab !== "edit"} onPress={() => { setExNameDraft(selectedExercise.exercise_name); setEditingExName(true); }}>
+                    <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "600", marginBottom: S * 1.5 }} numberOfLines={1}>{selectedExercise.exercise_name}</Text>
+                  </Pressable>
+                )}
 
-  // --- Exercise detail modal ---
-  const exerciseModal = largeModal(
-    selectedExercise !== null,
-    closeExerciseModal,
-    selectedExercise && (
-      <View style={{ flex: 1 }}>
-        {/* Header: title + edit/history icons */}
-        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: ui.gridPadding }}>
-          <Text variant="titleLarge" style={{ flex: 1 }} numberOfLines={1}>
-            {selectedExercise.exercise_name}
-          </Text>
-          <IconButton
-            icon="pencil-outline"
-            size={ui.iconLg}
-            onPress={() => setModalTab(modalTab === "edit" ? "log" : "edit")}
-            mode={modalTab === "edit" ? "contained" : "outlined"}
-            style={{ marginLeft: ui.gridPadding * 0.25 }}
-          />
-          <IconButton
-            icon="history"
-            size={ui.iconLg}
-            onPress={() => setModalTab(modalTab === "history" ? "log" : "history")}
-            mode={modalTab === "history" ? "contained" : "outlined"}
-            style={{ marginLeft: ui.gridPadding * 0.25 }}
-          />
-        </View>
+                {/* ── LOG TAB ── */}
+                {modalTab === "log" && (
+                  <View style={{ flex: 1, justifyContent: "space-between" }}>
+                    <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled bounces={false}>
+                      {sets.map((s, i) => (
+                        <View key={i} style={{ marginBottom: S }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+                            <Text style={{ color: BRAND.textSecondary, fontSize: 12, fontWeight: "600", letterSpacing: 1, flex: 1 }}>SET {i + 1}</Text>
+                            {i >= 2 && <Pressable onPress={() => removeSet(i)} hitSlop={8}><Text style={{ color: BRAND.error, fontSize: 12 }}>Remove</Text></Pressable>}
+                          </View>
+                          <NumberWheel values={weightValues} value={Number(s.weight)} onValueChange={(v) => updateSet(i, "weight", String(v))} formatLabel={weightLabel} />
+                          <View style={{ height: 6 }} />
+                          <NumberWheel values={repsValues} value={s.reps} onValueChange={(v) => updateSet(i, "reps", v)} />
+                        </View>
+                      ))}
+                    </ScrollView>
 
-        {/* Log tab */}
-        {modalTab === "log" && (
-          modalLoading ? <ActivityIndicator style={{ flex: 1 }} /> : (
-            <View style={{ flex: 1, justifyContent: "space-between" }}>
-              <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                {sets.map((s, i) => (
-                  <View key={i} style={{ marginBottom: ui.gridPadding * 1.5 }}>
-                    {/* Weight input for this set */}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: ui.gridPadding * 0.5, marginBottom: ui.gridPadding * 0.5 }}>
-                      <Text variant="labelMedium" style={{ width: 50 }}>Set {i + 1}</Text>
-                      <TextInput
-                        mode="outlined"
-                        outlineStyle={{ borderRadius: ui.controlRadius, borderWidth: ui.controlBorderWidth }}
-                        style={{ flex: 1, height: ui.controlHeight, backgroundColor: "transparent", textAlign: "center" }}
-                        contentStyle={{ height: ui.controlHeight, textAlign: "center" }}
-                        value={s.weight}
-                        onChangeText={(t) => updateSet(i, "weight", t)}
-                        onFocus={() => { if (s.weight === "0") updateSet(i, "weight", ""); }}
-                        onBlur={() => { if (s.weight.trim() === "") updateSet(i, "weight", "0"); }}
-                        keyboardType="decimal-pad"
-                      />
-                      <Text variant="labelSmall" style={{ opacity: 0.5 }}>kg</Text>
-                    </View>
-                    {/* Reps milestone bar */}
-                    <SetRow
-                      label=""
-                      scheme={modalScheme}
-                      value={s.reps}
-                      onValueChange={(v) => updateSet(i, "reps", v)}
-                      relativeUi={ui}
-                    />
-                  </View>
-                ))}
-
-                <Button
-                  mode="outlined"
-                  icon="plus"
-                  onPress={addSet}
-                  style={{ borderRadius: ui.controlRadius, marginTop: ui.gridPadding * 0.5 }}
-                  compact
-                >
-                  Add Set
-                </Button>
-              </ScrollView>
-
-              {/* LOG button pinned to bottom */}
-              <Button
-                mode="contained"
-                onPress={onSaveLog}
-                style={{ borderRadius: ui.controlRadius, height: ui.controlHeight * 1.12, marginTop: ui.gridPadding }}
-                contentStyle={{ height: ui.controlHeight * 1.12 }}
-              >
-                LOG
-              </Button>
-            </View>
-          )
-        )}
-
-        {/* Edit tab */}
-        {modalTab === "edit" && (
-          <ScrollView
-            style={{ flex: 1 }}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            <ExerciseForm
-              initialName={selectedExercise.exercise_name}
-              initialUnitType={selectedExercise.unit_type ?? "reps"}
-              initialMin={selectedExercise.min_val ?? 8}
-              initialMax={selectedExercise.max_val ?? 12}
-              initialStep={selectedExercise.step ?? 1}
-              initialNumSets={selectedExercise.num_sets ?? 2}
-              submitLabel="Save"
-              onSubmit={handleEditExercise}
-              onRemoveFromRoutine={() => handleRemoveExercise(selectedExercise)}
-            />
-          </ScrollView>
-        )}
-
-        {/* History tab */}
-        {modalTab === "history" && (
-          <View style={{ flex: 1 }}>
-            {modalLoading ? <ActivityIndicator style={{ flex: 1 }} /> : !modalHistory.length ? (
-              <Text variant="bodySmall" style={{ opacity: 0.7, marginTop: ui.gridPadding }}>No history yet</Text>
-            ) : (
-              <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-                {modalHistory.map((session) => (
-                  <View key={session.date} style={{ marginBottom: ui.gridPadding }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.outlineVariant, paddingBottom: ui.gridPadding * 0.3 }}>
-                      <Text variant="labelMedium" style={{ fontWeight: "600" }}>{formatDateEuropean(session.date)}</Text>
-                      <IconButton
-                        icon="delete-outline"
-                        size={ui.iconSm}
-                        onPress={() => onDeleteSession(session.date)}
-                        mode="text"
-                        style={{ margin: 0, width: ui.iconSm + 8, height: ui.iconSm + 8 }}
-                        iconColor={colors.error}
-                      />
-                    </View>
-                    {session.sets.map((s, i) => (
-                      <View key={i} style={{ flexDirection: "row", paddingVertical: ui.gridPadding * 0.3, paddingHorizontal: ui.gridPadding * 0.5 }}>
-                        <Text variant="bodySmall" style={{ flex: 0.3, opacity: 0.5 }}>Set {s.setNumber}</Text>
-                        <Text variant="bodySmall" style={{ flex: 1 }}>{s.weight} kg</Text>
-                        <Text variant="bodySmall" style={{ flex: 0.5, textAlign: "right" }}>{s.reps} {modalScheme.unitShort}</Text>
+                    <View style={{ gap: 10, marginTop: S * 0.75 }}>
+                      <View style={{ flexDirection: "row", gap: 10 }}>
+                        <Pill label="Add Set" icon="plus" onPress={addSet} />
+                        <Pill label="LOG" active onPress={onSaveLog} />
                       </View>
-                    ))}
+                      <View style={{ flexDirection: "row", gap: 10 }}>
+                        <Pill label="Edit" icon="pencil-outline" onPress={() => setModalTab("edit")} />
+                        <Pill label="History" icon="history" onPress={() => setModalTab("history")} />
+                        <Pill label="Delete" icon="delete-outline" danger onPress={() => handleRemoveExercise(selectedExercise)} />
+                      </View>
+                    </View>
                   </View>
-                ))}
-              </ScrollView>
+                )}
+
+                {/* ── EDIT TAB ── */}
+                {modalTab === "edit" && (
+                  <ExerciseForm
+                    initialName={selectedExercise.exercise_name} initialUnitType={selectedExercise.unit_type ?? "reps"}
+                    initialMin={selectedExercise.min_val ?? 8} initialMax={selectedExercise.max_val ?? 12}
+                    initialStep={selectedExercise.step ?? 1} initialNumSets={selectedExercise.num_sets ?? 2}
+                    initialWeightMin={selectedExercise.weight_min ?? 0} initialWeightMax={selectedExercise.weight_max ?? 250}
+                    initialWeightStep={selectedExercise.weight_step ?? 1.25}
+                    submitLabel="Save" onSubmit={handleEditExercise} showNameField={false} pinButton />
+                )}
+
+                {/* ── HISTORY TAB ── */}
+                {modalTab === "history" && (
+                  <View style={{ flex: 1 }}>
+                    {modalLoading ? <ActivityIndicator style={{ flex: 1 }} color={BRAND.accent} /> : !modalHistory.length ? (
+                      <Text style={{ color: BRAND.textMuted, marginTop: S }}>No history yet</Text>
+                    ) : (
+                      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} bounces={false}>
+                        {modalHistory.map((session) => (
+                          <View key={session.date} style={{ marginBottom: S }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: BRAND.border, paddingBottom: 6 }}>
+                              <Text style={{ color: BRAND.text, fontSize: 13, fontWeight: "600" }}>{formatDateEuropean(session.date)}</Text>
+                              <Pressable onPress={() => onDeleteSession(session.date)} hitSlop={8}><Text style={{ color: BRAND.error, fontSize: 12 }}>Delete</Text></Pressable>
+                            </View>
+                            {session.sets.map((s, i) => (
+                              <View key={i} style={{ flexDirection: "row", paddingVertical: 6, paddingHorizontal: 4 }}>
+                                <Text style={{ color: BRAND.textMuted, fontSize: 13, width: 44 }}>Set {s.setNumber}</Text>
+                                <Text style={{ color: BRAND.text, fontSize: 13, flex: 1 }}>{s.weight} kg</Text>
+                                <Text style={{ color: BRAND.textSecondary, fontSize: 13 }}>{s.reps} {modalScheme.unitShort}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
+                )}
+              </View>
             )}
           </View>
-        )}
+        </View>
       </View>
-    ),
+    </Modal>
   );
 
-  // --- Routine list view ---
+  const confirmModal = overlay(confirmAction !== null, () => setConfirmAction(null),
+    <View style={{ width: "82%", maxWidth: 320, backgroundColor: BRAND.surface, borderRadius: 20, padding: S * 1.25 }}>
+      <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "600", marginBottom: 6 }}>{confirmAction?.title}</Text>
+      <Text style={{ color: BRAND.textSecondary, fontSize: 14, marginBottom: S }}>{confirmAction?.message}</Text>
+      <View style={{ flexDirection: "row", gap: 10 }}>
+        <Pill label="Cancel" onPress={() => setConfirmAction(null)} />
+        <Pressable onPress={confirmAction?.onConfirm} style={{ flex: 1, height: 44, borderRadius: 12, backgroundColor: BRAND.error, justifyContent: "center", alignItems: "center" }}>
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>{confirmAction?.label}</Text>
+        </Pressable>
+      </View>
+    </View>,
+  );
+
+  /* ═══ ROUTINE LIST ═══ */
   if (currentRoutine === null) {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.background }}>
-        <View
-          style={{ flex: 1, paddingTop: insets.top }}
-          onLayout={(e) => setListAreaHeight(e.nativeEvent.layout.height)}
-        >
-          <DraggableFlatList
-            data={routines}
-            keyExtractor={(item) => String(item.id)}
-            renderItem={renderRoutineItem}
-            onDragEnd={({ data: reordered }) => handleRoutineReorder(reordered)}
-            containerStyle={{ flex: 1 }}
-            contentContainerStyle={{
-              paddingTop: ui.gridPadding,
-              paddingLeft: insets.left + ui.gridPadding,
-              paddingRight: insets.right + ui.gridPadding,
-              paddingBottom: 0,
-              flexGrow: 1,
-            }}
-            showsVerticalScrollIndicator={false}
-          />
-          <View
-            style={{ paddingHorizontal: insets.left + ui.gridPadding, paddingTop: ui.gridPadding, paddingBottom: footerPadding }}
-            onLayout={(e) => setRoutineFooterMeasured(e.nativeEvent.layout.height)}
-          >
-            <Button
-              mode="outlined"
-              icon="plus"
-              onPress={() => setShowAddRoutine(true)}
-              style={{ borderRadius: ui.controlRadius, height: ui.controlHeight * 1.12 }}
-              contentStyle={{ height: ui.controlHeight * 1.12 }}
-            >
-              Add Routine
-            </Button>
-          </View>
+      <View style={{ flex: 1, backgroundColor: BRAND.bg, paddingTop: insets.top }}>
+        <DraggableFlatList data={routines} keyExtractor={(item) => String(item.id)} renderItem={renderRoutineItem}
+          onDragEnd={({ data: d }) => handleRoutineReorder(d)} containerStyle={{ flex: 1 }}
+          contentContainerStyle={{ padding: S, flexGrow: 1 }} showsVerticalScrollIndicator={false} />
+        <View style={{ paddingHorizontal: S, paddingBottom: insets.bottom + S }}>
+          <Pressable onPress={() => setShowAddRoutine(true)} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.border, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
+            <Text style={{ color: BRAND.textSecondary, fontSize: 14, fontWeight: "500" }}>+ Add Routine</Text>
+          </Pressable>
         </View>
 
-        {/* Add Routine modal */}
-        {smallModal(
-          showAddRoutine,
-          () => { setShowAddRoutine(false); setNewRoutineName(""); },
-          <>
-            <Text variant="titleMedium" style={{ marginBottom: ui.gridPadding }}>
-              New Routine
-            </Text>
-            <TextInput
-              mode="outlined"
-              placeholder="Routine name"
-              value={newRoutineName}
-              onChangeText={setNewRoutineName}
-              style={{ height: ui.controlHeight, backgroundColor: "transparent" }}
-              contentStyle={{ height: ui.controlHeight }}
-              outlineStyle={{ borderRadius: ui.controlRadius, borderWidth: ui.controlBorderWidth }}
-              autoFocus
-              onSubmitEditing={handleCreateRoutine}
-            />
-            <Button
-              mode="contained"
-              onPress={handleCreateRoutine}
-              style={{ borderRadius: ui.controlRadius, marginTop: ui.gridPadding }}
-              disabled={!newRoutineName.trim()}
-            >
-              Create
-            </Button>
-          </>,
+        {overlay(showAddRoutine, () => { setShowAddRoutine(false); setNewRoutineName(""); },
+          <View style={{ width: "82%", maxWidth: 320, backgroundColor: BRAND.surface, borderRadius: 20, padding: S * 1.25 }}>
+            <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "600", marginBottom: S }}>New Routine</Text>
+            <TextInput mode="outlined" placeholder="Routine name" value={newRoutineName} onChangeText={setNewRoutineName} autoFocus onSubmitEditing={handleCreateRoutine}
+              style={{ height: 44, backgroundColor: "transparent" }} contentStyle={{ height: 44 }} textColor={BRAND.text}
+              outlineStyle={{ borderRadius: 10, borderWidth: 1, borderColor: BRAND.border }} placeholderTextColor={BRAND.textMuted} />
+            <Pressable onPress={handleCreateRoutine} disabled={!newRoutineName.trim()}
+              style={{ height: 48, borderRadius: 12, marginTop: S, backgroundColor: !newRoutineName.trim() ? BRAND.surfaceHigh : BRAND.accent, justifyContent: "center", alignItems: "center" }}>
+              <Text style={{ color: !newRoutineName.trim() ? BRAND.textMuted : BRAND.bg, fontSize: 15, fontWeight: "700" }}>Create</Text>
+            </Pressable>
+          </View>,
         )}
-
         {confirmModal}
       </View>
     );
   }
 
-  // --- Routine detail view (workout) ---
+  /* ═══ EXERCISE LIST ═══ */
   return (
-    <View style={{ flex: 1 }}>
-      {/* Header bar with routine name + delete */}
-      <View style={fixedHeaderStyle}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
-            minHeight: ui.controlHeight,
-          }}
-        >
+    <View style={{ flex: 1, backgroundColor: BRAND.bg }}>
+      {/* Header */}
+      <View style={{ paddingTop: insets.top + S, paddingBottom: S * 0.75, paddingHorizontal: S, backgroundColor: BRAND.bg }}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
           {editingHeaderName ? (
-            <TextInput
-              mode="flat"
-              value={headerNameDraft}
-              onChangeText={setHeaderNameDraft}
-              style={{ flex: 1, backgroundColor: "transparent", fontSize: ui.fontSizeBody, fontWeight: "500", paddingHorizontal: 0, marginLeft: -4 }}
-              underlineStyle={{ display: "none" }}
-              activeUnderlineColor="transparent"
-              autoFocus
-              onSubmitEditing={async () => {
-                const trimmed = headerNameDraft.trim();
-                if (trimmed && trimmed !== currentRoutine.name) {
-                  await updateRoutine({ id: currentRoutine.id, name: trimmed });
-                  setCurrentRoutine((r) => ({ ...r, name: trimmed }));
-                  await loadRoutines();
-                }
-                setEditingHeaderName(false);
-              }}
-              onBlur={() => setEditingHeaderName(false)}
-            />
+            <TextInput mode="flat" value={headerNameDraft} onChangeText={setHeaderNameDraft} autoFocus onSubmitEditing={saveHeaderName} onBlur={saveHeaderName}
+              style={{ flex: 1, backgroundColor: "transparent", fontSize: 18, fontWeight: "600", paddingHorizontal: 0, paddingVertical: 0, margin: 0, minHeight: 0, height: 24 }}
+              contentStyle={{ paddingHorizontal: 0, paddingVertical: 0 }} textColor={BRAND.text} underlineStyle={{ display: "none" }} activeUnderlineColor="transparent" />
           ) : (
-            <Pressable
-              style={{ flex: 1 }}
-              onPress={() => {
-                setHeaderNameDraft(currentRoutine.name);
-                setEditingHeaderName(true);
-              }}
-            >
-              <Text variant="titleMedium" numberOfLines={1}>
-                {currentRoutine.name}
-              </Text>
+            <Pressable style={{ flex: 1 }} onPress={() => { setHeaderNameDraft(currentRoutine.name); setEditingHeaderName(true); }}>
+              <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "600" }} numberOfLines={1}>{currentRoutine.name}</Text>
             </Pressable>
           )}
-          <IconButton
-            icon="delete-outline"
-            size={ui.iconLg}
-            iconColor={colors.error}
-            onPress={() => handleDeleteRoutine(currentRoutine)}
-          />
+          <Pressable onPress={() => handleDeleteRoutine(currentRoutine)} hitSlop={8} style={{ marginLeft: 12 }}>
+            <IconButton icon="delete-outline" size={20} iconColor={BRAND.error} style={{ margin: 0 }} />
+          </Pressable>
         </View>
       </View>
-      <View
-        style={{ flex: 1, backgroundColor: colors.background }}
-        onLayout={(e) => setExerciseAreaHeight(e.nativeEvent.layout.height)}
-      >
-        <DraggableFlatList
-          data={routineExercises}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderExerciseItem}
-          extraData={exerciseItemHeight}
-          onDragEnd={({ data: reordered }) => handleExerciseReorder(reordered)}
-          containerStyle={{ flex: 1 }}
-          contentContainerStyle={{
-            paddingTop: ui.gridPadding,
-            paddingLeft: insets.left + ui.gridPadding,
-            paddingRight: insets.right + ui.gridPadding,
-            paddingBottom: 0,
-          }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        />
-        <View
-          style={{ paddingHorizontal: insets.left + ui.gridPadding, paddingTop: ui.gridPadding, paddingBottom: footerPadding }}
-          onLayout={(e) => setExFooterMeasured(e.nativeEvent.layout.height)}
-        >
-          {showAddExercise ? (
-            <Surface elevation={1} style={{ borderRadius: ui.cardBorderRadius, padding: ui.gridPadding }}>
-              <ExerciseForm
-                submitLabel="Add Exercise"
-                onSubmit={handleAddExerciseSubmit}
-              />
-            </Surface>
-          ) : (
-            <Button
-              mode="outlined"
-              icon="plus"
-              onPress={() => setShowAddExercise(true)}
-              style={{ borderRadius: ui.controlRadius, height: ui.controlHeight * 1.12 }}
-              contentStyle={{ height: ui.controlHeight * 1.12 }}
-            >
-              Add Exercise
-            </Button>
-          )}
-        </View>
+      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: BRAND.border }} />
+
+      <DraggableFlatList data={routineExercises} keyExtractor={(item) => String(item.id)} renderItem={renderExerciseItem}
+        onDragEnd={({ data: d }) => handleExerciseReorder(d)} containerStyle={{ flex: 1 }}
+        contentContainerStyle={{ padding: S }} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled" />
+
+      <View style={{ paddingHorizontal: S, paddingBottom: insets.bottom + S }}>
+        {showAddExercise ? (
+          <View style={{ backgroundColor: BRAND.surface, borderRadius: 16, padding: S }}>
+            <ExerciseForm submitLabel="Add Exercise" onSubmit={handleAddExerciseSubmit} />
+          </View>
+        ) : (
+          <Pressable onPress={() => setShowAddExercise(true)} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.border, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
+            <Text style={{ color: BRAND.textSecondary, fontSize: 14, fontWeight: "500" }}>+ Add Exercise</Text>
+          </Pressable>
+        )}
       </View>
 
       {exerciseModal}
