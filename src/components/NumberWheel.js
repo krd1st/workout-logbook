@@ -24,6 +24,12 @@ export const NumberWheel = React.memo(function NumberWheel({ values, value, onVa
     return closest;
   }, [values, value]);
 
+  // Sync parent state with what the wheel actually displays on mount
+  React.useEffect(() => {
+    const displayed = values[currentIndex];
+    if (displayed !== value) onValueChange(displayed);
+  }, []); // only on mount
+
   const handleChange = React.useCallback((selected, index) => {
     onValueChange(values[index]);
   }, [onValueChange, values]);
