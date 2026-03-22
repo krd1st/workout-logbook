@@ -8,8 +8,6 @@ export const BASE_SIDE_PADDING = 16;
 export const BASE_ROW_GAP = 8;
 export const BASE_NUMBERS_TO_INPUTS_GAP = 16;
 
-// Press threshold (not scaled — physical gesture tolerance)
-export const PRESS_MOVE_THRESHOLD = 12;
 
 // Cards
 export const BASE_CARD_BORDER_RADIUS = 16;

@@ -26,7 +26,7 @@ export function ExerciseCard({ workoutId, exerciseName, exerciseData, refreshTok
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={500}>
       <View style={[
         { backgroundColor: BRAND.surface, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 20 },
-        ready && { borderLeftWidth: 3, borderLeftColor: BRAND.accent },
+        ready && { borderLeftWidth: 3, borderLeftColor: BRAND.accent, paddingLeft: 17 },
       ]}>
         <Text style={{ color: BRAND.text, fontSize: 16, fontWeight: "500" }} numberOfLines={1}>{exerciseName}</Text>
         <Text style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }} numberOfLines={1}>{lastLine}</Text>

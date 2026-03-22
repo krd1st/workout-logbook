@@ -4,9 +4,9 @@ import { Button, Text, TextInput } from "react-native-paper";
 import { BRAND } from "../constants/colors";
 
 export function ExerciseForm({
-  initialName = "", initialUnitType = "reps", initialMin = 8, initialMax = 12,
-  initialStep = 1, initialNumSets = 2, initialWeightMin = 0, initialWeightMax = 250,
-  initialWeightStep = 1.25, submitLabel = "Add", onSubmit, showNameField = true, pinButton = false,
+  initialName = "", initialUnitType = "reps", initialMin = 6, initialMax = 12,
+  initialStep = 1, initialNumSets = 2, initialWeightMin = 0, initialWeightMax = 100,
+  initialWeightStep = 2.5, submitLabel = "Add", onSubmit, showNameField = true, pinButton = false,
 }) {
   const [name, setName] = React.useState(initialName);
   const [unitType, setUnitType] = React.useState(initialUnitType);
@@ -19,7 +19,7 @@ export function ExerciseForm({
 
   const handleSubmit = () => {
     const t = name.trim(); if (!t) return;
-    onSubmit({ name: t, unitType, min: Number(minVal) || 1, max: Number(maxVal) || 12, step: initialStep, numSets: Number(numSets) || 2, weightMin: Number(weightMin) || 0, weightMax: Number(weightMax) || 250, weightStep: Number(weightStep) || 1.25 });
+    onSubmit({ name: t, unitType, min: Number(minVal) || 1, max: Number(maxVal) || 12, step: unitType === "sec" ? 5 : (initialStep || 1), numSets: Number(numSets) || 2, weightMin: Number(weightMin) || 0, weightMax: Number(weightMax) || 100, weightStep: Number(weightStep) || 2.5 });
   };
 
   const inputProps = (val, set, kb = "number-pad") => ({
@@ -43,7 +43,7 @@ export function ExerciseForm({
       {showNameField && (
         <View>
           {sectionLabel("Exercise name")}
-          <TextInput {...inputProps(name, setName)} placeholder="e.g. Bench Press" autoFocus
+          <TextInput {...inputProps(name, setName, "default")} placeholder="Bench Press" placeholderTextColor={BRAND.textMuted}
             style={{ height: 44, backgroundColor: "transparent" }} contentStyle={{ height: 44 }}
             outlineStyle={{ borderRadius: 10, borderWidth: 1, borderColor: BRAND.border }} textColor={BRAND.text} />
         </View>
@@ -71,7 +71,7 @@ export function ExerciseForm({
         {sectionLabel("Unit type")}
         <View style={{ flexDirection: "row", gap: 10 }}>
           {["reps", "sec"].map((t) => (
-            <Pressable key={t} onPress={() => { setUnitType(t); if (t === "sec") { setMinVal("30"); setMaxVal("120"); } else { setMinVal("8"); setMaxVal("12"); } }}
+            <Pressable key={t} onPress={() => { setUnitType(t); if (t === "sec") { setMinVal("30"); setMaxVal("120"); } else { setMinVal("6"); setMaxVal("12"); } }}
               style={{ flex: 1, height: 44, borderRadius: 10, justifyContent: "center", alignItems: "center", backgroundColor: unitType === t ? BRAND.accent : BRAND.surfaceHigh }}>
               <Text style={{ color: unitType === t ? BRAND.bg : BRAND.text, fontWeight: unitType === t ? "700" : "400", fontSize: 14 }}>{t === "reps" ? "Reps" : "Seconds"}</Text>
             </Pressable>
