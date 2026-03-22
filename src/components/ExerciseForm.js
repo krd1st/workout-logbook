@@ -50,19 +50,16 @@ export function ExerciseForm({
       )}
 
       <View>
-        {sectionLabel("Unit type")}
+        {sectionLabel("Weight range")}
         <View style={{ flexDirection: "row", gap: 10 }}>
-          {["reps", "sec"].map((t) => (
-            <Pressable key={t} onPress={() => { setUnitType(t); if (t === "sec") { setMinVal("30"); setMaxVal("120"); } else { setMinVal("8"); setMaxVal("12"); } }}
-              style={{ flex: 1, height: 44, borderRadius: 10, justifyContent: "center", alignItems: "center", backgroundColor: unitType === t ? BRAND.accent : BRAND.surfaceHigh }}>
-              <Text style={{ color: unitType === t ? BRAND.bg : BRAND.text, fontWeight: unitType === t ? "700" : "400", fontSize: 14 }}>{t === "reps" ? "Reps" : "Seconds"}</Text>
-            </Pressable>
-          ))}
+          <View style={{ flex: 1 }}>{fieldLabel("Min")}<TextInput {...inputProps(weightMin, setWeightMin, "decimal-pad")} /></View>
+          <View style={{ flex: 1 }}>{fieldLabel("Max")}<TextInput {...inputProps(weightMax, setWeightMax, "decimal-pad")} /></View>
+          <View style={{ flex: 1 }}>{fieldLabel("Step")}<TextInput {...inputProps(weightStep, setWeightStep, "decimal-pad")} /></View>
         </View>
       </View>
 
       <View>
-        {sectionLabel(unitType === "sec" ? "Seconds range" : "Reps range")}
+        {sectionLabel(unitType === "sec" ? "Seconds range" : "Rep range")}
         <View style={{ flexDirection: "row", gap: 10 }}>
           <View style={{ flex: 1 }}>{fieldLabel("Min")}<TextInput {...inputProps(minVal, setMinVal)} /></View>
           <View style={{ flex: 1 }}>{fieldLabel("Max")}<TextInput {...inputProps(maxVal, setMaxVal)} /></View>
@@ -71,11 +68,14 @@ export function ExerciseForm({
       </View>
 
       <View>
-        {sectionLabel("Weight range (kg)")}
+        {sectionLabel("Unit type")}
         <View style={{ flexDirection: "row", gap: 10 }}>
-          <View style={{ flex: 1 }}>{fieldLabel("Min")}<TextInput {...inputProps(weightMin, setWeightMin, "decimal-pad")} /></View>
-          <View style={{ flex: 1 }}>{fieldLabel("Max")}<TextInput {...inputProps(weightMax, setWeightMax, "decimal-pad")} /></View>
-          <View style={{ flex: 1 }}>{fieldLabel("Step")}<TextInput {...inputProps(weightStep, setWeightStep, "decimal-pad")} /></View>
+          {["reps", "sec"].map((t) => (
+            <Pressable key={t} onPress={() => { setUnitType(t); if (t === "sec") { setMinVal("30"); setMaxVal("120"); } else { setMinVal("8"); setMaxVal("12"); } }}
+              style={{ flex: 1, height: 44, borderRadius: 10, justifyContent: "center", alignItems: "center", backgroundColor: unitType === t ? BRAND.accent : BRAND.surfaceHigh }}>
+              <Text style={{ color: unitType === t ? BRAND.bg : BRAND.text, fontWeight: unitType === t ? "700" : "400", fontSize: 14 }}>{t === "reps" ? "Reps" : "Seconds"}</Text>
+            </Pressable>
+          ))}
         </View>
       </View>
     </View>
