@@ -76,33 +76,34 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
     try { setModalHistory(await getExerciseEntriesGrouped({ exerciseName: n, limit: 500 })); } finally { setModalLoading(false); }
   }, []);
 
-  function openExerciseModal(re) {
+  async function openExerciseModal(re) {
     setModalTab("log"); setEditingExName(false);
-    const n = re.num_sets ?? 2, sch = { min: re.min_val ?? 8, max: re.max_val ?? 12 };
-    // Set defaults immediately so UI is never empty
-    const defaults = [];
-    for (let i = 0; i < n; i++) defaults.push({ weight: "0", reps: sch.min });
-    setSets(defaults);
+    const isSec = re.unit_type === "sec";
+    const n = re.num_sets ?? 2, sch = { min: re.min_val ?? (isSec ? 30 : 6), max: re.max_val ?? (isSec ? 120 : 12) };
+    // Load data FIRST so wheels mount with correct values
+    try {
+      const [last, hist] = await Promise.all([getLastExerciseSets({ exerciseName: re.exercise_name }), getExerciseEntriesGrouped({ exerciseName: re.exercise_name, limit: 500 })]);
+      setModalHistory(hist ?? []);
+      const s = [];
+      for (let i = 0; i < n; i++) {
+        const p = last?.sets?.[i];
+        s.push({ weight: p?.weight != null ? String(p.weight) : "0", reps: p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min });
+      }
+      setSets(s);
+    } catch (e) {
+      const s = [];
+      for (let i = 0; i < n; i++) s.push({ weight: "0", reps: sch.min });
+      setSets(s);
+    }
     setSelectedExercise(re);
     openSheetAnimated();
-    // Then load real data and update
-    (async () => {
-      try {
-        const [last, hist] = await Promise.all([getLastExerciseSets({ exerciseName: re.exercise_name }), getExerciseEntriesGrouped({ exerciseName: re.exercise_name, limit: 500 })]);
-        setModalHistory(hist ?? []);
-        if (last?.sets?.length) {
-          const s = [];
-          for (let i = 0; i < n; i++) { const p = last.sets[i]; s.push({ weight: p?.weight != null ? String(p.weight) : "0", reps: p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min }); }
-          setSets(s);
-        }
-      } catch (e) { /* data will show defaults */ }
-    })();
   }
   function closeExerciseModal() { closeSheetAnimated(); }
 
   const modalScheme = React.useMemo(() => {
-    if (!selectedExercise) return { min: 8, max: 12, step: 1, unitShort: "reps" };
-    return { min: selectedExercise.min_val ?? 8, max: selectedExercise.max_val ?? 12, step: selectedExercise.step ?? 1, unitShort: selectedExercise.unit_type === "sec" ? "sec" : "reps" };
+    if (!selectedExercise) return { min: 6, max: 12, step: 1, unitShort: "reps" };
+    const isSec = selectedExercise.unit_type === "sec";
+    return { min: selectedExercise.min_val ?? (isSec ? 30 : 6), max: selectedExercise.max_val ?? (isSec ? 120 : 12), step: isSec ? 5 : 1, unitShort: isSec ? "sec" : "reps" };
   }, [selectedExercise]);
 
   const weightValues = React.useMemo(() => {
@@ -143,7 +144,25 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
     setLogSaved(true);
     doLog().finally(() => setTimeout(() => setLogSaved(false), 1500));
   }
-  async function onDeleteSession(d) { if (!selectedExercise) return; await deleteExerciseSession({ exerciseName: selectedExercise.exercise_name, dateISO: d }); await refreshModal(selectedExercise.exercise_name); setRefreshToken((x) => x + 1); }
+  async function onDeleteSession(d) {
+    if (!selectedExercise) return;
+    await deleteExerciseSession({ exerciseName: selectedExercise.exercise_name, dateISO: d });
+    await refreshModal(selectedExercise.exercise_name);
+    setRefreshToken((x) => x + 1);
+    // Auto-fill from the next latest log
+    const last = await getLastExerciseSets({ exerciseName: selectedExercise.exercise_name });
+    const n = selectedExercise.num_sets ?? 2;
+    const sch = { min: selectedExercise.min_val ?? 6, max: selectedExercise.max_val ?? 12 };
+    if (last?.sets?.length) {
+      const s = [];
+      for (let i = 0; i < n; i++) { const p = last.sets[i]; s.push({ weight: p?.weight != null ? String(p.weight) : "0", reps: p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min }); }
+      setSets(s);
+    } else {
+      const s = [];
+      for (let i = 0; i < n; i++) s.push({ weight: "0", reps: sch.min });
+      setSets(s);
+    }
+  }
 
   async function handleEditExercise({ name, unitType, min, max, step, numSets, weightMin, weightMax, weightStep }) {
     if (!selectedExercise) return;
@@ -287,7 +306,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       <RNAnimated.View style={{ ...StyleSheet.absoluteFillObject, justifyContent: "flex-end", transform: [{ translateY: addAnim.interpolate({ inputRange: [0, 1], outputRange: [800, 0] }) }] }} pointerEvents="box-none">
         <View style={{ height: "80%", backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: S, paddingBottom: insets.bottom + S }}>
           <View style={{ alignItems: "center", marginBottom: S }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: BRAND.border }} /></View>
-          <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "600", marginBottom: S * 1.5 }}>New Exercise</Text>
+          <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }}>New Exercise</Text>
           <ExerciseForm submitLabel="Add Exercise" onSubmit={handleAddExerciseSubmit} pinButton />
         </View>
       </RNAnimated.View>
@@ -325,10 +344,10 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
               {editingExName ? (
                 <RNTextInput value={exNameDraft} onChangeText={(t) => setExNameDraft(t.slice(0, 30))} autoFocus onSubmitEditing={saveExName} onBlur={saveExName}
                   cursorColor={BRAND.accent} selectionColor={BRAND.accent}
-                  style={{ color: BRAND.text, fontSize: 22, fontWeight: "600", padding: 0, margin: 0, marginBottom: S * 1.5 }} />
+                  style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", padding: 0, margin: 0, marginBottom: S * 1.5 }} />
               ) : (
                 <Pressable disabled={modalTab !== "edit"} onPress={() => { setExNameDraft(selectedExercise.exercise_name); setEditingExName(true); }}>
-                  <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "600", marginBottom: S * 1.5 }} numberOfLines={1}>{selectedExercise.exercise_name}</Text>
+                  <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }} numberOfLines={1}>{selectedExercise.exercise_name}</Text>
                 </Pressable>
               )}
 
@@ -409,7 +428,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
 
   const confirmModal = overlay(confirmAction !== null, () => setConfirmAction(null),
     <View style={{ width: "82%", maxWidth: 320, backgroundColor: BRAND.surface, borderRadius: 20, padding: S * 1.25 }}>
-      <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "600", marginBottom: 6 }}>{confirmAction?.title}</Text>
+      <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", marginBottom: 6 }}>{confirmAction?.title}</Text>
       <Text style={{ color: BRAND.textSecondary, fontSize: 14, marginBottom: S }}>{confirmAction?.message}</Text>
       <View style={{ flexDirection: "row", gap: 10 }}>
         <Pill label="Cancel" onPress={() => setConfirmAction(null)} />
@@ -427,7 +446,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
         {/* Header */}
         <View style={{ paddingTop: insets.top + S, paddingBottom: S * 0.75, paddingHorizontal: S }}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "600", flex: 1 }}>Workout Routine</Text>
+            <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", flex: 1 }}>Workout Routine</Text>
             <IconButton icon="calendar-month-outline" size={20} iconColor={BRAND.textSecondary} style={{ margin: 0 }} />
           </View>
         </View>
@@ -449,7 +468,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
             <Pressable style={StyleSheet.absoluteFill} onPress={() => { Keyboard.dismiss(); setShowAddRoutine(false); setNewRoutineName(""); }}><View style={{ flex: 1, backgroundColor: BRAND.overlay }} /></Pressable>
             <View style={{ ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center" }} pointerEvents="box-none">
               <View style={{ width: "82%", maxWidth: 320, backgroundColor: BRAND.surface, borderRadius: 20, padding: S * 1.25 }}>
-                <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "600", marginBottom: S }}>New Routine</Text>
+                <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", marginBottom: S }}>New Routine</Text>
                 <TextInput ref={routineNameRef} mode="outlined" placeholder="Routine name" value={newRoutineName} onChangeText={setNewRoutineName} onSubmitEditing={handleCreateRoutine}
                   style={{ height: 44, backgroundColor: "transparent" }} contentStyle={{ height: 44 }} textColor={BRAND.text}
                   outlineStyle={{ borderRadius: 10, borderWidth: 1, borderColor: BRAND.border }} placeholderTextColor={BRAND.textMuted} />
@@ -475,10 +494,10 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
           {editingHeaderName ? (
             <RNTextInput value={headerNameDraft} onChangeText={(t) => setHeaderNameDraft(t.slice(0, 40))} autoFocus onSubmitEditing={saveHeaderName} onBlur={saveHeaderName}
               cursorColor={BRAND.accent} selectionColor={BRAND.accent}
-              style={{ flex: 1, color: BRAND.text, fontSize: 18, fontWeight: "600", padding: 0, margin: 0 }} />
+              style={{ flex: 1, color: BRAND.text, fontSize: 18, fontWeight: "700", padding: 0, margin: 0 }} />
           ) : (
             <Pressable style={{ flex: 1 }} onPress={() => { setHeaderNameDraft(currentRoutine.name); setEditingHeaderName(true); }}>
-              <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "600" }} numberOfLines={1}>{currentRoutine.name}</Text>
+              <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700" }} numberOfLines={1}>{currentRoutine.name}</Text>
             </Pressable>
           )}
           <IconButton icon="delete-outline" size={20} iconColor={BRAND.error} onPress={() => handleDeleteRoutine(currentRoutine)} style={{ margin: 0 }} />
