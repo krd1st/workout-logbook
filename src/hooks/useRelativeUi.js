@@ -15,11 +15,6 @@ import {
   BASE_CONTROL_HEIGHT,
   BASE_CONTROL_RADIUS,
   BASE_CONTROL_BORDER_WIDTH,
-  BASE_BAR_HEIGHT,
-  BASE_TRACK_HEIGHT,
-  BASE_DOT_SIZE,
-  BASE_SELECTED_DOT_SIZE,
-  BASE_DOT_HIT_PADDING,
   BASE_HEADER_PADDING,
   BASE_ICON_SM,
   BASE_ICON_MD,
@@ -72,8 +67,6 @@ export function useRelativeUi() {
       gridPadding: s(BASE_GRID_PADDING, scale, 6),
       sidePadding: s(BASE_SIDE_PADDING, scale, 8),
       rowGap: s(BASE_ROW_GAP, scale, 4),
-      weightRowGap: s(BASE_ROW_GAP, scale, 4),
-      setRowTightGap: s(BASE_ROW_GAP, scale, 2),
       numbersToInputsGap: s(BASE_NUMBERS_TO_INPUTS_GAP, scale, 4),
 
       // Cards
@@ -86,13 +79,6 @@ export function useRelativeUi() {
       controlHeight: s(BASE_CONTROL_HEIGHT, scale, 32),
       controlRadius: s(BASE_CONTROL_RADIUS, scale, 16),
       controlBorderWidth: Math.max(1, Math.round(BASE_CONTROL_BORDER_WIDTH * scale)),
-
-      // Milestone bar
-      milestoneBarHeight: s(BASE_BAR_HEIGHT, scale, 32),
-      milestoneTrackHeight: Math.max(2, Math.round(BASE_TRACK_HEIGHT * scale)),
-      milestoneDotSize: s(BASE_DOT_SIZE, scale, 6),
-      milestoneSelectedDotSize: s(BASE_SELECTED_DOT_SIZE, scale, 12),
-      milestoneDotHitPadding: s(BASE_DOT_HIT_PADDING, scale, 4),
 
       // Header
       headerPadding: s(BASE_HEADER_PADDING, scale, 8),
@@ -138,11 +124,6 @@ export function useRelativeUi() {
       dayButtonPadding: s(BASE_DAY_BUTTON_PADDING, scale, 4),
       dayButtonSubtitleMarginTop: s(BASE_DAY_BUTTON_SUBTITLE_MARGIN_TOP, scale, 3),
 
-      // Expanded window height (proportional to viewport)
-      expandedWindowHeight: Math.max(
-        s(148, scale, 100),
-        Math.round(viewportHeight * 0.1),
-      ),
     };
   }, [viewportWidth, viewportHeight]);
 }

@@ -1,189 +1,103 @@
 import * as React from "react";
-import { Pressable, View } from "react-native";
-import {
-  Button,
-  Text,
-  TextInput,
-  useTheme,
-} from "react-native-paper";
-import { getAppColors } from "../constants/colors";
-import { useRelativeUi } from "../hooks/useRelativeUi";
+import { Pressable, ScrollView, View } from "react-native";
+import { Button, Text, TextInput } from "react-native-paper";
+import { BRAND } from "../constants/colors";
 
 export function ExerciseForm({
-  initialName = "",
-  initialUnitType = "reps",
-  initialMin = 8,
-  initialMax = 12,
-  initialStep = 1,
-  initialNumSets = 2,
-  submitLabel = "Add",
-  onSubmit,
-  onRemoveFromRoutine,
+  initialName = "", initialUnitType = "reps", initialMin = 8, initialMax = 12,
+  initialStep = 1, initialNumSets = 2, initialWeightMin = 0, initialWeightMax = 250,
+  initialWeightStep = 1.25, submitLabel = "Add", onSubmit, showNameField = true, pinButton = false,
 }) {
-  const theme = useTheme();
-  const colors = React.useMemo(() => getAppColors(theme), [theme]);
-  const ui = useRelativeUi();
   const [name, setName] = React.useState(initialName);
   const [unitType, setUnitType] = React.useState(initialUnitType);
   const [minVal, setMinVal] = React.useState(String(initialMin));
   const [maxVal, setMaxVal] = React.useState(String(initialMax));
-  const [stepVal, setStepVal] = React.useState(String(initialStep));
   const [numSets, setNumSets] = React.useState(String(initialNumSets));
+  const [weightMin, setWeightMin] = React.useState(String(initialWeightMin));
+  const [weightMax, setWeightMax] = React.useState(String(initialWeightMax));
+  const [weightStep, setWeightStep] = React.useState(String(initialWeightStep));
 
   const handleSubmit = () => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    onSubmit({
-      name: trimmed,
-      unitType,
-      min: Number(minVal) || 1,
-      max: Number(maxVal) || 12,
-      step: Number(stepVal) || 1,
-      numSets: Number(numSets) || 2,
-    });
+    const t = name.trim(); if (!t) return;
+    onSubmit({ name: t, unitType, min: Number(minVal) || 1, max: Number(maxVal) || 12, step: initialStep, numSets: Number(numSets) || 2, weightMin: Number(weightMin) || 0, weightMax: Number(weightMax) || 250, weightStep: Number(weightStep) || 1.25 });
   };
 
-  const inputStyle = {
-    height: ui.controlHeight,
-    backgroundColor: "transparent",
-    textAlign: "center",
-    fontSize: ui.fontSizeBody,
-  };
+  const inputProps = (val, set, kb = "number-pad") => ({
+    mode: "outlined", value: val, onChangeText: set, keyboardType: kb,
+    style: { flex: 1, height: 44, backgroundColor: "transparent", textAlign: "center" },
+    contentStyle: { height: 44, textAlign: "center" },
+    outlineStyle: { borderRadius: 10, borderWidth: 1, borderColor: BRAND.border },
+    textColor: BRAND.text,
+  });
 
-  const outlineStyle = {
-    borderRadius: ui.controlRadius,
-    borderWidth: ui.controlBorderWidth,
-  };
+  const sectionLabel = (text) => (
+    <Text style={{ color: BRAND.textSecondary, fontSize: 12, fontWeight: "600", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>{text}</Text>
+  );
 
-  const g = ui.gridPadding;
+  const fieldLabel = (text) => (
+    <Text style={{ color: BRAND.textMuted, fontSize: 11, textAlign: "center", marginBottom: 3 }}>{text}</Text>
+  );
 
-  return (
-    <View style={{ gap: g * 1.5 }}>
-      {/* Exercise name */}
+  const fields = (
+    <View style={{ gap: 28 }}>
+      {showNameField && (
+        <View>
+          {sectionLabel("Exercise name")}
+          <TextInput {...inputProps(name, setName)} placeholder="e.g. Bench Press" autoFocus
+            style={{ height: 44, backgroundColor: "transparent" }} contentStyle={{ height: 44 }}
+            outlineStyle={{ borderRadius: 10, borderWidth: 1, borderColor: BRAND.border }} textColor={BRAND.text} />
+        </View>
+      )}
+
       <View>
-        <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6 }}>Exercise name</Text>
-        <TextInput
-          mode="outlined"
-          placeholder="e.g. Bench Press"
-          value={name}
-          onChangeText={setName}
-          style={inputStyle}
-          contentStyle={{ height: ui.controlHeight }}
-          outlineStyle={outlineStyle}
-          autoFocus
-        />
-      </View>
-
-      {/* Unit type toggle */}
-      <View>
-        <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6 }}>Unit type</Text>
-        <View style={{ flexDirection: "row", gap: g * 0.5 }}>
-          {["reps", "sec"].map((type) => (
-            <Pressable
-              key={type}
-              onPress={() => {
-                setUnitType(type);
-                if (type === "sec") {
-                  setMinVal("30"); setMaxVal("120"); setStepVal("15");
-                } else {
-                  setMinVal("8"); setMaxVal("12"); setStepVal("1");
-                }
-              }}
-              style={{
-                flex: 1,
-                height: ui.controlHeight,
-                borderRadius: ui.controlRadius,
-                justifyContent: "center",
-                alignItems: "center",
-                borderWidth: ui.controlBorderWidth,
-                borderColor: unitType === type ? colors.outline : colors.outlineVariant,
-                backgroundColor: unitType === type ? colors.surface : "transparent",
-              }}
-            >
-              <Text variant="labelMedium" style={{ fontWeight: unitType === type ? "700" : "400" }}>
-                {type === "reps" ? "Reps" : "Seconds"}
-              </Text>
+        {sectionLabel("Unit type")}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          {["reps", "sec"].map((t) => (
+            <Pressable key={t} onPress={() => { setUnitType(t); if (t === "sec") { setMinVal("30"); setMaxVal("120"); } else { setMinVal("8"); setMaxVal("12"); } }}
+              style={{ flex: 1, height: 44, borderRadius: 10, justifyContent: "center", alignItems: "center", backgroundColor: unitType === t ? BRAND.accent : BRAND.surfaceHigh }}>
+              <Text style={{ color: unitType === t ? BRAND.bg : BRAND.text, fontWeight: unitType === t ? "700" : "400", fontSize: 14 }}>{t === "reps" ? "Reps" : "Seconds"}</Text>
             </Pressable>
           ))}
         </View>
       </View>
 
-      {/* Range + Sets row */}
-      <View style={{ flexDirection: "row", gap: g * 0.5 }}>
-        <View style={{ flex: 1 }}>
-          <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6, textAlign: "center" }}>Min</Text>
-          <TextInput
-            mode="outlined"
-            value={minVal}
-            onChangeText={setMinVal}
-            keyboardType="number-pad"
-            style={inputStyle}
-            contentStyle={{ height: ui.controlHeight, textAlign: "center" }}
-            outlineStyle={outlineStyle}
-          />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6, textAlign: "center" }}>Max</Text>
-          <TextInput
-            mode="outlined"
-            value={maxVal}
-            onChangeText={setMaxVal}
-            keyboardType="number-pad"
-            style={inputStyle}
-            contentStyle={{ height: ui.controlHeight, textAlign: "center" }}
-            outlineStyle={outlineStyle}
-          />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6, textAlign: "center" }}>Step</Text>
-          <TextInput
-            mode="outlined"
-            value={stepVal}
-            onChangeText={setStepVal}
-            keyboardType="number-pad"
-            style={inputStyle}
-            contentStyle={{ height: ui.controlHeight, textAlign: "center" }}
-            outlineStyle={outlineStyle}
-          />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text variant="labelMedium" style={{ marginBottom: g * 0.3, opacity: 0.6, textAlign: "center" }}>Sets</Text>
-          <TextInput
-            mode="outlined"
-            value={numSets}
-            onChangeText={setNumSets}
-            keyboardType="number-pad"
-            style={inputStyle}
-            contentStyle={{ height: ui.controlHeight, textAlign: "center" }}
-            outlineStyle={outlineStyle}
-          />
+      <View>
+        {sectionLabel(unitType === "sec" ? "Seconds range" : "Reps range")}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flex: 1 }}>{fieldLabel("Min")}<TextInput {...inputProps(minVal, setMinVal)} /></View>
+          <View style={{ flex: 1 }}>{fieldLabel("Max")}<TextInput {...inputProps(maxVal, setMaxVal)} /></View>
+          <View style={{ flex: 1 }}>{fieldLabel("Sets")}<TextInput {...inputProps(numSets, setNumSets)} /></View>
         </View>
       </View>
 
-      {/* Action buttons */}
-      <View style={{ flexDirection: "row", gap: g * 0.5 }}>
-        <Button
-          mode="contained"
-          onPress={handleSubmit}
-          style={{ flex: 1, borderRadius: ui.controlRadius, height: ui.controlHeight }}
-          contentStyle={{ height: ui.controlHeight }}
-          disabled={!name.trim()}
-        >
-          {submitLabel}
-        </Button>
-        {onRemoveFromRoutine && (
-          <Button
-            mode="outlined"
-            icon="delete-outline"
-            onPress={onRemoveFromRoutine}
-            style={{ flex: 1, borderRadius: ui.controlRadius, height: ui.controlHeight }}
-            contentStyle={{ height: ui.controlHeight }}
-            textColor={colors.error}
-          >
-            Delete
-          </Button>
-        )}
+      <View>
+        {sectionLabel("Weight range (kg)")}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flex: 1 }}>{fieldLabel("Min")}<TextInput {...inputProps(weightMin, setWeightMin, "decimal-pad")} /></View>
+          <View style={{ flex: 1 }}>{fieldLabel("Max")}<TextInput {...inputProps(weightMax, setWeightMax, "decimal-pad")} /></View>
+          <View style={{ flex: 1 }}>{fieldLabel("Step")}<TextInput {...inputProps(weightStep, setWeightStep, "decimal-pad")} /></View>
+        </View>
       </View>
     </View>
   );
+
+  const btn = (
+    <Pressable onPress={handleSubmit} disabled={!name.trim()}
+      style={{ height: 48, borderRadius: 12, backgroundColor: !name.trim() ? BRAND.surfaceHigh : BRAND.accent, justifyContent: "center", alignItems: "center" }}>
+      <Text style={{ color: !name.trim() ? BRAND.textMuted : BRAND.bg, fontSize: 15, fontWeight: "700" }}>{submitLabel}</Text>
+    </Pressable>
+  );
+
+  if (pinButton) {
+    return (
+      <View style={{ flex: 1, justifyContent: "space-between" }}>
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false}>
+          {fields}
+        </ScrollView>
+        <View style={{ marginTop: 20 }}>{btn}</View>
+      </View>
+    );
+  }
+
+  return <View style={{ gap: 24 }}>{fields}{btn}</View>;
 }
