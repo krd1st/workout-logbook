@@ -10,10 +10,19 @@ export const NumberWheel = React.memo(function NumberWheel({ values, value, onVa
     values.map((v) => ({ label: fmt(v), value: v })),
   [values, fmt]);
 
-  const initialIndex = React.useMemo(() => {
+  const currentIndex = React.useMemo(() => {
+    // Exact match first
     const idx = values.indexOf(value);
-    return idx >= 0 ? idx : 0;
-  }, []);
+    if (idx >= 0) return idx;
+    // Closest match (handles floating point or step mismatch)
+    let closest = 0;
+    let minDist = Math.abs(values[0] - value);
+    for (let i = 1; i < values.length; i++) {
+      const d = Math.abs(values[i] - value);
+      if (d < minDist) { minDist = d; closest = i; }
+    }
+    return closest;
+  }, [values, value]);
 
   const handleChange = React.useCallback((selected, index) => {
     onValueChange(values[index]);
@@ -23,7 +32,7 @@ export const NumberWheel = React.memo(function NumberWheel({ values, value, onVa
     <View style={{ height: 40, overflow: "hidden", backgroundColor: BRAND.surfaceHigh, borderRadius: 10, position: "relative" }}>
       <HorizontalPicker
         items={items}
-        initialScrollIndex={initialIndex}
+        initialScrollIndex={currentIndex}
         onChange={handleChange}
         visibleItemCount={7}
         focusedOpacityStyle={1}

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Pressable, ScrollView, View } from "react-native";
-import { Button, Text, TextInput } from "react-native-paper";
+import { Text, TextInput } from "react-native-paper";
 import { BRAND } from "../constants/colors";
 
 export function ExerciseForm({
@@ -12,14 +12,20 @@ export function ExerciseForm({
   const [unitType, setUnitType] = React.useState(initialUnitType);
   const [minVal, setMinVal] = React.useState(String(initialMin));
   const [maxVal, setMaxVal] = React.useState(String(initialMax));
-  const [numSets, setNumSets] = React.useState(String(initialNumSets));
   const [weightMin, setWeightMin] = React.useState(String(initialWeightMin));
   const [weightMax, setWeightMax] = React.useState(String(initialWeightMax));
   const [weightStep, setWeightStep] = React.useState(String(initialWeightStep));
 
   const handleSubmit = () => {
     const t = name.trim(); if (!t) return;
-    onSubmit({ name: t, unitType, min: Number(minVal) || 1, max: Number(maxVal) || 12, step: unitType === "sec" ? 5 : (initialStep || 1), numSets: Number(numSets) || 2, weightMin: Number(weightMin) || 0, weightMax: Number(weightMax) || 100, weightStep: Number(weightStep) || 2.5 });
+    onSubmit({
+      name: t, unitType,
+      min: Number(minVal) || 1, max: Number(maxVal) || 12,
+      step: unitType === "sec" ? 5 : 1,
+      numSets: initialNumSets,
+      weightMin: Number(weightMin) || 0, weightMax: Number(weightMax) || 100,
+      weightStep: Number(weightStep) || 2.5,
+    });
   };
 
   const inputProps = (val, set, kb = "number-pad") => ({
@@ -36,6 +42,28 @@ export function ExerciseForm({
 
   const fieldLabel = (text) => (
     <Text style={{ color: BRAND.textMuted, fontSize: 11, textAlign: "center", marginBottom: 3 }}>{text}</Text>
+  );
+
+  const toggle = (
+    <View style={{ flex: 1 }}>
+      {fieldLabel("")}
+      <Pressable
+        onPress={() => {
+          const next = unitType === "reps" ? "sec" : "reps";
+          setUnitType(next);
+          if (next === "sec") { setMinVal("30"); setMaxVal("120"); }
+          else { setMinVal("6"); setMaxVal("12"); }
+        }}
+        style={{ height: 44, borderRadius: 10, flexDirection: "row", overflow: "hidden", borderWidth: 1, borderColor: BRAND.border }}
+      >
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: unitType === "reps" ? BRAND.accent : BRAND.surfaceHigh }}>
+          <Text style={{ color: unitType === "reps" ? BRAND.bg : BRAND.textMuted, fontSize: 12, fontWeight: "700" }}>Reps</Text>
+        </View>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: unitType === "sec" ? BRAND.accent : BRAND.surfaceHigh }}>
+          <Text style={{ color: unitType === "sec" ? BRAND.bg : BRAND.textMuted, fontSize: 12, fontWeight: "700" }}>Sec</Text>
+        </View>
+      </Pressable>
+    </View>
   );
 
   const fields = (
@@ -59,25 +87,14 @@ export function ExerciseForm({
       </View>
 
       <View>
-        {sectionLabel(unitType === "sec" ? "Seconds range" : "Rep range")}
+        {sectionLabel(unitType === "sec" ? "Time range" : "Rep range")}
         <View style={{ flexDirection: "row", gap: 10 }}>
+          {toggle}
           <View style={{ flex: 1 }}>{fieldLabel("Min")}<TextInput {...inputProps(minVal, setMinVal)} /></View>
           <View style={{ flex: 1 }}>{fieldLabel("Max")}<TextInput {...inputProps(maxVal, setMaxVal)} /></View>
-          <View style={{ flex: 1 }}>{fieldLabel("Sets")}<TextInput {...inputProps(numSets, setNumSets)} /></View>
         </View>
       </View>
 
-      <View>
-        {sectionLabel("Unit type")}
-        <View style={{ flexDirection: "row", gap: 10 }}>
-          {["reps", "sec"].map((t) => (
-            <Pressable key={t} onPress={() => { setUnitType(t); if (t === "sec") { setMinVal("30"); setMaxVal("120"); } else { setMinVal("6"); setMaxVal("12"); } }}
-              style={{ flex: 1, height: 44, borderRadius: 10, justifyContent: "center", alignItems: "center", backgroundColor: unitType === t ? BRAND.accent : BRAND.surfaceHigh }}>
-              <Text style={{ color: unitType === t ? BRAND.bg : BRAND.text, fontWeight: unitType === t ? "700" : "400", fontSize: 14 }}>{t === "reps" ? "Reps" : "Seconds"}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
     </View>
   );
 

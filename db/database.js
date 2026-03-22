@@ -1,6 +1,4 @@
 import { openDatabaseAsync } from 'expo-sqlite';
-import { SPLIT } from '../src/constants/split';
-import { getSchemeForExercise } from '../src/utils/exerciseScheme';
 
 const DB_NAME = 'gym_log_book.db';
 
@@ -116,49 +114,6 @@ export async function initDatabase() {
   // Backfill set_number from set_type for existing rows.
   await db.runAsync(`UPDATE logs SET set_number = 2 WHERE set_type = 'BACK_OFF' AND set_number != 2;`);
 
-  // Seed routines & exercises from hardcoded SPLIT if tables are empty.
-  await seedFromSplit();
-}
-
-async function seedFromSplit() {
-  const db = await getDb();
-  const existing = await db.getFirstAsync(`SELECT COUNT(*) as cnt FROM routines;`, []);
-  if (existing.cnt > 0) return;
-
-  // Collect all unique exercises across all splits and insert them.
-  const seenExercises = new Set();
-  for (const split of SPLIT) {
-    for (const exName of split.exercises) {
-      if (seenExercises.has(exName)) continue;
-      seenExercises.add(exName);
-      const scheme = getSchemeForExercise(exName);
-      await db.runAsync(
-        `INSERT OR IGNORE INTO exercises (name, unit_type, min_val, max_val, step) VALUES (?, ?, ?, ?, ?);`,
-        [exName, scheme.unitShort === 'sec' ? 'sec' : 'reps', scheme.min, scheme.max, scheme.step],
-      );
-    }
-  }
-
-  // Insert routines and their exercise links.
-  for (let i = 0; i < SPLIT.length; i++) {
-    const split = SPLIT[i];
-    const res = await db.runAsync(
-      `INSERT INTO routines (name, sort_order) VALUES (?, ?);`,
-      [split.name, i],
-    );
-    const routineId = res.lastInsertRowId;
-    for (let j = 0; j < split.exercises.length; j++) {
-      await db.runAsync(
-        `INSERT INTO routine_exercises (routine_id, exercise_name, sort_order) VALUES (?, ?, ?);`,
-        [routineId, split.exercises[j], j],
-      );
-    }
-    // Backfill routine_id on existing workouts that used this split_index.
-    await db.runAsync(
-      `UPDATE workouts SET routine_id = ? WHERE split_index = ? AND routine_id IS NULL;`,
-      [routineId, i],
-    );
-  }
 }
 
 export async function startWorkout({ splitIndex, plannedName, startedAtISO, routineId }) {
