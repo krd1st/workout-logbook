@@ -6,7 +6,7 @@ import { BRAND } from "../constants/colors";
 export function ExerciseForm({
   initialName = "", initialUnitType = "reps", initialMin = 6, initialMax = 12,
   initialStep = 1, initialNumSets = 2, initialWeightMin = 0, initialWeightMax = 100,
-  initialWeightStep = 2.5, submitLabel = "Add", onSubmit, showNameField = true, pinButton = false,
+  initialWeightStep = 2.5, submitLabel = "Add", onSubmit, showNameField = true, pinButton = false, showButton = true, onSubmitRef,
 }) {
   const [name, setName] = React.useState(initialName);
   const [unitType, setUnitType] = React.useState(initialUnitType);
@@ -27,6 +27,11 @@ export function ExerciseForm({
       weightStep: Number(weightStep) || 2.5,
     });
   };
+
+  // Expose submit to parent via callback ref
+  React.useEffect(() => {
+    if (onSubmitRef) onSubmitRef(handleSubmit);
+  });
 
   const inputProps = (val, set, kb = "number-pad") => ({
     mode: "outlined", value: val, onChangeText: set, keyboardType: kb,
@@ -104,6 +109,10 @@ export function ExerciseForm({
       <Text style={{ color: !name.trim() ? BRAND.textMuted : BRAND.bg, fontSize: 15, fontWeight: "700" }}>{submitLabel}</Text>
     </Pressable>
   );
+
+  if (!showButton) {
+    return fields;
+  }
 
   if (pinButton) {
     return (

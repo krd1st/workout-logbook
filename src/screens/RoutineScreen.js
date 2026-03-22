@@ -1,6 +1,6 @@
 import * as React from "react";
 import {
-  Animated as RNAnimated, BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View,
+  Animated as RNAnimated, BackHandler, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View,
 } from "react-native";
 import {
   ActivityIndicator, IconButton, Text, TextInput,
@@ -59,6 +59,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const [editingExName, setEditingExName] = React.useState(false);
   const [exNameDraft, setExNameDraft] = React.useState("");
   const routineNameRef = React.useRef(null);
+  const editSubmitRef = React.useRef(null);
 
   const loadRoutines = React.useCallback(async () => setRoutines(await getRoutines()), []);
   const loadRoutineExercises = React.useCallback(async (id) => setRoutineExercises(await getRoutineExercises(id)), []);
@@ -114,8 +115,6 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const repsValues = React.useMemo(() => { const a = []; for (let v = modalScheme.min; v <= modalScheme.max; v += modalScheme.step) a.push(v); return a; }, [modalScheme]);
 
   function updateSet(i, f, v) { setSets((p) => p.map((s, j) => j === i ? { ...s, [f]: v } : s)); }
-  function addSet() { setSets((p) => [...p, { weight: p.length ? p[p.length - 1].weight : "0", reps: modalScheme.min }]); }
-  function removeSet(i) { setSets((p) => p.filter((_, j) => j !== i)); }
 
   const [logSaved, setLogSaved] = React.useState(false);
   function onSaveLog() {
@@ -298,14 +297,23 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
     });
   }
 
+  // Swipe-down to close gestures
+  const makeSwipeDismiss = (closeFn) => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_, g) => g.dy > 10,
+    onPanResponderRelease: (_, g) => { if (g.dy > 50) closeFn(); },
+  });
+  const addSwipe = React.useRef(makeSwipeDismiss(closeAddSheet)).current;
+  const sheetSwipe = React.useRef(makeSwipeDismiss(closeSheetAnimated)).current;
+
   const addExSheet = addSheetMounted && (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <Pressable style={StyleSheet.absoluteFill} onPress={closeAddSheet}>
         <RNAnimated.View style={{ flex: 1, backgroundColor: BRAND.overlay, opacity: addAnim }} />
       </Pressable>
       <RNAnimated.View style={{ ...StyleSheet.absoluteFillObject, justifyContent: "flex-end", transform: [{ translateY: addAnim.interpolate({ inputRange: [0, 1], outputRange: [800, 0] }) }] }} pointerEvents="box-none">
-        <View style={{ height: "80%", backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: S, paddingBottom: insets.bottom + S }}>
-          <View style={{ alignItems: "center", marginBottom: S }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: BRAND.border }} /></View>
+        <View style={{ height: "57%", backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: S, paddingBottom: insets.bottom + S }}>
+          <View {...addSwipe.panHandlers} style={{ alignItems: "center", paddingVertical: 8, marginBottom: S - 8 }}><View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: BRAND.border }} /></View>
           <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }}>New Exercise</Text>
           <ExerciseForm submitLabel="Add Exercise" onSubmit={handleAddExerciseSubmit} pinButton />
         </View>
@@ -330,13 +338,13 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
         {/* Dark overlay behind sheet — visual only */}
         <View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: BRAND.overlay }} />
         {/* Tap area above sheet to close */}
-        <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, height: "20%" }} onPress={closeSheetAnimated} />
+        <Pressable style={{ position: "absolute", top: 0, left: 0, right: 0, height: "44%" }} onPress={closeSheetAnimated} />
         {/* Sheet */}
-        <View style={{ height: "80%", backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: S, paddingBottom: insets.bottom + S }}>
+        <View style={{ height: "57%", backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: S, paddingBottom: insets.bottom + S }}>
           {selectedExercise && (
             <View style={{ flex: 1 }}>
-              {/* Handle bar */}
-              <View style={{ alignItems: "center", marginBottom: S }}>
+              {/* Handle bar — swipe down to close */}
+              <View {...sheetSwipe.panHandlers} style={{ alignItems: "center", paddingVertical: 8, marginBottom: S - 8 }}>
                 <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: BRAND.border }} />
               </View>
 
@@ -351,74 +359,86 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
                 </Pressable>
               )}
 
-              {/* ── LOG TAB ── */}
-              {modalTab === "log" && (
-                <View style={{ flex: 1, justifyContent: "space-between" }}>
-                  <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled bounces={false}>
-                    {sets.map((s, i) => (
-                      <View key={i} style={{ marginBottom: S }}>
-                        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-                          <Text style={{ color: BRAND.textSecondary, fontSize: 12, fontWeight: "600", letterSpacing: 1, flex: 1 }}>SET {i + 1}</Text>
-                          {i >= 2 && <Pressable onPress={() => removeSet(i)} hitSlop={8}><Text style={{ color: BRAND.error, fontSize: 12 }}>Remove</Text></Pressable>}
-                        </View>
-                        <NumberWheel values={weightValues} value={Number(s.weight)} onValueChange={(v) => updateSet(i, "weight", String(v))} formatLabel={weightLabel} />
-                        <View style={{ height: 6 }} />
-                        <NumberWheel values={repsValues} value={s.reps} onValueChange={(v) => updateSet(i, "reps", v)} />
-                      </View>
-                    ))}
-                  </ScrollView>
-
-                  <View style={{ gap: 10, marginTop: S * 0.75 }}>
-                    <View style={{ flexDirection: "row", gap: 10 }}>
-                      <Pill label="Add Set" icon="plus" onPress={addSet} />
-                      <Pill label={logSaved ? "SAVED" : "LOG"} active onPress={onSaveLog} />
-                    </View>
-                    <View style={{ flexDirection: "row", gap: 10 }}>
-                      <Pill label="Edit" icon="pencil-outline" onPress={() => setModalTab("edit")} />
-                      <Pill label="History" icon="history" onPress={() => setModalTab("history")} />
-                      <Pill label="Delete" icon="delete-outline" danger onPress={() => handleRemoveExercise(selectedExercise)} />
-                    </View>
-                  </View>
-                </View>
-              )}
-
-              {/* ── EDIT TAB ── */}
-              {modalTab === "edit" && (
-                <ExerciseForm
-                  initialName={selectedExercise.exercise_name} initialUnitType={selectedExercise.unit_type ?? "reps"}
-                  initialMin={selectedExercise.min_val ?? 8} initialMax={selectedExercise.max_val ?? 12}
-                  initialStep={selectedExercise.step ?? 1} initialNumSets={selectedExercise.num_sets ?? 2}
-                  initialWeightMin={selectedExercise.weight_min ?? 0} initialWeightMax={selectedExercise.weight_max ?? 100}
-                  initialWeightStep={selectedExercise.weight_step ?? 2.5}
-                  submitLabel="Save" onSubmit={handleEditExercise} showNameField={false} pinButton />
-              )}
-
-              {/* ── HISTORY TAB ── */}
-              {modalTab === "history" && (
-                <View style={{ flex: 1 }}>
-                  {modalLoading ? <ActivityIndicator style={{ flex: 1 }} color={BRAND.accent} /> : !modalHistory.length ? (
-                    <Text style={{ color: BRAND.textMuted, marginTop: S }}>No history yet</Text>
-                  ) : (
-                    <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} bounces={false}>
-                      {modalHistory.map((session) => (
-                        <View key={session.date} style={{ marginBottom: S }}>
-                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: BRAND.border, paddingBottom: 6 }}>
-                            <Text style={{ color: BRAND.text, fontSize: 13, fontWeight: "600" }}>{formatDateEuropean(session.date)}</Text>
-                            <Pressable onPress={() => onDeleteSession(session.date)} hitSlop={8}><Text style={{ color: BRAND.error, fontSize: 12 }}>Delete</Text></Pressable>
-                          </View>
-                          {session.sets.map((s, i) => (
-                            <View key={i} style={{ flexDirection: "row", paddingVertical: 6, paddingHorizontal: 4 }}>
-                              <Text style={{ color: BRAND.textMuted, fontSize: 13, width: 44 }}>Set {s.setNumber}</Text>
-                              <Text style={{ color: BRAND.text, fontSize: 13, flex: 1 }}>{s.weight} kg</Text>
-                              <Text style={{ color: BRAND.textSecondary, fontSize: 13 }}>{s.reps} {modalScheme.unitShort}</Text>
-                            </View>
-                          ))}
+              {/* ── Content area ── */}
+              <View style={{ flex: 1 }}>
+                {/* LOG */}
+                {modalTab === "log" && (
+                  <View style={{ flex: 1 }}>
+                    <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled bounces={false}>
+                      {sets.map((s, i) => (
+                        <View key={i} style={{ marginBottom: S }}>
+                          <Text style={{ color: BRAND.textSecondary, fontSize: 12, fontWeight: "600", letterSpacing: 1, marginBottom: 6 }}>SET {i + 1}</Text>
+                          <NumberWheel values={weightValues} value={Number(s.weight)} onValueChange={(v) => updateSet(i, "weight", String(v))} formatLabel={weightLabel} />
+                          <View style={{ height: 6 }} />
+                          <NumberWheel values={repsValues} value={s.reps} onValueChange={(v) => updateSet(i, "reps", v)} />
                         </View>
                       ))}
                     </ScrollView>
-                  )}
-                </View>
-              )}
+                  </View>
+                )}
+
+                {/* EDIT */}
+                {modalTab === "edit" && (
+                  <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false}>
+                    <ExerciseForm
+                      initialName={selectedExercise.exercise_name} initialUnitType={selectedExercise.unit_type ?? "reps"}
+                      initialMin={selectedExercise.min_val ?? 6} initialMax={selectedExercise.max_val ?? 12}
+                      initialStep={selectedExercise.step ?? 1} initialNumSets={selectedExercise.num_sets ?? 2}
+                      initialWeightMin={selectedExercise.weight_min ?? 0} initialWeightMax={selectedExercise.weight_max ?? 100}
+                      initialWeightStep={selectedExercise.weight_step ?? 2.5}
+                      onSubmit={handleEditExercise} showNameField={false} showButton={false}
+                      onSubmitRef={(fn) => { editSubmitRef.current = fn; }} />
+                  </ScrollView>
+                )}
+
+                {/* HISTORY */}
+                {modalTab === "history" && (
+                  <View style={{ flex: 1 }}>
+                    {modalLoading ? <ActivityIndicator style={{ flex: 1 }} color={BRAND.accent} /> : !modalHistory.length ? (
+                      <Text style={{ color: BRAND.textMuted, marginTop: S }}>No history yet</Text>
+                    ) : (
+                      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} bounces={false}>
+                        {modalHistory.map((session) => (
+                          <View key={session.date} style={{ marginBottom: S }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: BRAND.border, paddingBottom: 6 }}>
+                              <Text style={{ color: BRAND.text, fontSize: 13, fontWeight: "600" }}>{formatDateEuropean(session.date)}</Text>
+                              <Pressable onPress={() => onDeleteSession(session.date)} hitSlop={8}><Text style={{ color: BRAND.error, fontSize: 12 }}>Delete</Text></Pressable>
+                            </View>
+                            {session.sets.map((s, i) => (
+                              <View key={i} style={{ flexDirection: "row", paddingVertical: 6, paddingHorizontal: 4 }}>
+                                <Text style={{ color: BRAND.textMuted, fontSize: 13, width: 44 }}>Set {s.setNumber}</Text>
+                                <Text style={{ color: BRAND.text, fontSize: 13, flex: 1 }}>{s.weight} kg</Text>
+                                <Text style={{ color: BRAND.textSecondary, fontSize: 13 }}>{s.reps} {modalScheme.unitShort}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </View>
+                )}
+              </View>
+
+              {/* ── Action button (per mode) ── */}
+              <View style={{ marginTop: S * 0.75 }}>
+                {modalTab === "log" && (
+                  <View style={{ flexDirection: "row" }}>
+                    <Pill label={logSaved ? "SAVED" : "LOG"} active onPress={onSaveLog} />
+                  </View>
+                )}
+                {modalTab === "edit" && (
+                  <View style={{ flexDirection: "row" }}>
+                    <Pill label="Update" active onPress={() => { if (editSubmitRef.current) editSubmitRef.current(); }} />
+                  </View>
+                )}
+              </View>
+
+              {/* ── Bottom nav (always visible) ── */}
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                <Pill label="Edit" icon="pencil-outline" active={modalTab === "edit"} onPress={() => setModalTab(modalTab === "edit" ? "log" : "edit")} />
+                <Pill label="History" icon="history" active={modalTab === "history"} onPress={() => setModalTab(modalTab === "history" ? "log" : "history")} />
+                <Pill label="Delete" icon="delete-outline" danger onPress={() => handleRemoveExercise(selectedExercise)} />
+              </View>
             </View>
           )}
         </View>
@@ -455,7 +475,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
         <DraggableFlatList data={routines} keyExtractor={(item) => String(item.id)} renderItem={renderRoutineItem}
           onDragEnd={({ data: d }) => handleRoutineReorder(d)} containerStyle={{ flex: 1 }}
           contentContainerStyle={{ padding: S, flexGrow: 1 }} showsVerticalScrollIndicator={false} />
-        <View style={{ paddingHorizontal: S, paddingBottom: insets.bottom + S }}>
+        <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
           <Pressable onPress={() => setShowAddRoutine(true)} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.border, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
             <Text style={{ color: BRAND.textSecondary, fontSize: 14, fontWeight: "500" }}>+ Add Routine</Text>
           </Pressable>
@@ -509,7 +529,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
         onDragEnd={({ data: d }) => handleExerciseReorder(d)} containerStyle={{ flex: 1 }}
         contentContainerStyle={{ padding: S }} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled" />
 
-      <View style={{ paddingHorizontal: S, paddingBottom: insets.bottom + S }}>
+      <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
         <Pressable onPress={openAddSheet} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.border, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
           <Text style={{ color: BRAND.textSecondary, fontSize: 14, fontWeight: "500" }}>+ Add Exercise</Text>
         </Pressable>
