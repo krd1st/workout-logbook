@@ -114,6 +114,8 @@ export async function initDatabase() {
   // Backfill set_number from set_type for existing rows.
   await db.runAsync(`UPDATE logs SET set_number = 2 WHERE set_type = 'BACK_OFF' AND set_number != 2;`);
 
+  // Migration: serving_grams for saved foods
+  await ensureColumnExists({ tableName: 'saved_foods', columnName: 'serving_grams', columnDDL: "serving_grams REAL NOT NULL DEFAULT 100" });
 }
 
 export async function startWorkout({ splitIndex, plannedName, startedAtISO, routineId }) {
@@ -291,11 +293,11 @@ export async function deleteExerciseSession({ exerciseName, dateISO }) {
 }
 
 // --- Nutrition (standalone calorie/macros log) ---
-export async function addNutritionLog({ date, calories = 0, protein = 0, carbs = 0, fat = 0 }) {
+export async function addNutritionLog({ date, calories = 0, protein = 0, carbs = 0, fat = 0, foodName = "" }) {
   const db = await getDb();
   await db.runAsync(
-    `INSERT INTO nutrition_logs (date, calories, protein, carbs, fat) VALUES (?, ?, ?, ?, ?);`,
-    [date, Number(calories) || 0, Number(protein) || 0, Number(carbs) || 0, Number(fat) || 0],
+    `INSERT INTO nutrition_logs (date, calories, protein, carbs, fat, food_name) VALUES (?, ?, ?, ?, ?, ?);`,
+    [date, Number(calories) || 0, Number(protein) || 0, Number(carbs) || 0, Number(fat) || 0, String(foodName || "").trim()],
   );
 }
 
@@ -379,18 +381,18 @@ export async function setNutritionQuota({ calories, protein, carbs, fat }) {
 }
 
 // --- Saved Foods ---
-export async function addSavedFood({ name, calories = 0, protein = 0, carbs = 0, fat = 0 }) {
+export async function addSavedFood({ name, calories = 0, protein = 0, carbs = 0, fat = 0, servingGrams = 100 }) {
   const db = await getDb();
   await db.runAsync(
-    `INSERT INTO saved_foods (name, calories, protein, carbs, fat) VALUES (?, ?, ?, ?, ?);`,
-    [String(name).trim(), Number(calories) || 0, Number(protein) || 0, Number(carbs) || 0, Number(fat) || 0],
+    `INSERT INTO saved_foods (name, calories, protein, carbs, fat, serving_grams) VALUES (?, ?, ?, ?, ?, ?);`,
+    [String(name).trim(), Number(calories) || 0, Number(protein) || 0, Number(carbs) || 0, Number(fat) || 0, Number(servingGrams) || 100],
   );
 }
 
 export async function getSavedFoods() {
   const db = await getDb();
   const rows = await db.getAllAsync(
-    `SELECT id, name, calories, protein, carbs, fat FROM saved_foods ORDER BY id DESC;`,
+    `SELECT id, name, calories, protein, carbs, fat, serving_grams FROM saved_foods ORDER BY id DESC;`,
     [],
   );
   return (rows || []).map((r) => ({
@@ -400,6 +402,7 @@ export async function getSavedFoods() {
     protein: r.protein ?? 0,
     carbs: r.carbs ?? 0,
     fat: r.fat ?? 0,
+    servingGrams: r.serving_grams ?? 100,
   }));
 }
 

@@ -13,6 +13,7 @@ import { clamp, formatDateEuropean, toISO } from "../utils/helpers";
 import { ExerciseCard } from "../components/ExerciseCard";
 import { ExerciseForm } from "../components/ExerciseForm";
 import { NumberWheel } from "../components/NumberWheel";
+import { Pill } from "../components/Pill";
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
 import * as Haptics from "expo-haptics";
 import {
@@ -26,15 +27,6 @@ const S = 20; // spacing unit
 
 /* (Add Exercise sheet is handled inline as a permanent overlay like the exercise sheet) */
 
-/* ── Pill Button ── */
-function Pill({ label, onPress, active, danger, icon, uppercase }) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => ({ flex: 1, height: 44, borderRadius: 12, justifyContent: "center", alignItems: "center", flexDirection: "row", gap: 6, backgroundColor: active ? BRAND.accent : danger ? "transparent" : BRAND.surfaceHigh, borderWidth: danger ? 1 : 0, borderColor: danger ? BRAND.error : undefined, opacity: pressed ? 0.8 : 1 })}>
-      {icon && <IconButton icon={icon} size={16} iconColor={active ? BRAND.bg : danger ? BRAND.error : BRAND.textSecondary} style={{ margin: 0, width: 16, height: 16 }} />}
-      <Text style={{ color: active ? BRAND.bg : danger ? BRAND.error : BRAND.text, fontWeight: active ? "700" : "500", fontSize: 13, letterSpacing: uppercase ? 1 : 0 }}>{label}</Text>
-    </Pressable>
-  );
-}
 
 export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBack }) {
   const [loading, setLoading] = React.useState(!dataReady || !preloadedRoutines);
@@ -230,13 +222,14 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   React.useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (confirmAction) { setConfirmAction(null); return true; }
+      if (selectedExercise) { handleExerciseModalBack(); return true; }
       if (showAddExercise) { setShowAddExercise(false); return true; }
       if (currentRoutine) { closeDay(); return true; }
       if (onBack) { onBack(); return true; }
       return false;
     });
     return () => sub.remove();
-  }, [currentRoutine, onBack, showAddExercise, confirmAction]);
+  }, [currentRoutine, onBack, showAddExercise, confirmAction, selectedExercise, handleExerciseModalBack]);
 
   if (loading) return <View style={{ flex: 1, backgroundColor: BRAND.bg }} />;
 
@@ -296,7 +289,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const addSnapPoints = React.useMemo(() => ["57%"], []);
 
   function openSheetAnimated() { exerciseSheetRef.current?.present(); }
-  function closeSheetAnimated() { Keyboard.dismiss(); exerciseSheetRef.current?.dismiss(); setEditingExName(false); setLogSaved(false); }
+  function closeSheetAnimated() { Keyboard.dismiss(); exerciseSheetRef.current?.dismiss(); setSelectedExercise(null); setEditingExName(false); setLogSaved(false); }
   function openAddSheet() { addSheetRef.current?.present(); }
   function closeAddSheet() { Keyboard.dismiss(); addSheetRef.current?.dismiss(); }
 
@@ -304,15 +297,6 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
     <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} pressBehavior="close" style={[props.style, { backgroundColor: BRAND.overlay }]} />
   ), []);
 
-  // Back handler for sheets
-  React.useEffect(() => {
-    if (!selectedExercise) return;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      handleExerciseModalBack();
-      return true;
-    });
-    return () => sub.remove();
-  }, [selectedExercise, handleExerciseModalBack]);
 
   const exerciseSheet = (
     <BottomSheetModal
@@ -327,7 +311,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       handleIndicatorStyle={{ backgroundColor: BRAND.border, width: 36 }}
       handleStyle={{ paddingVertical: 12 }}
       backgroundStyle={{ backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
-      onClose={() => { setEditingExName(false); setLogSaved(false); }}
+      onClose={() => { setSelectedExercise(null); setEditingExName(false); setLogSaved(false); }}
     >
       <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
         {selectedExercise && (

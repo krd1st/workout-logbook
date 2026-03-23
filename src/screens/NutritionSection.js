@@ -1,773 +1,382 @@
 import * as React from "react";
-import {
-  AppState,
-  BackHandler,
-  Keyboard,
-  Platform,
-  Pressable,
-  ScrollView,
-  View,
-} from "react-native";
-import {
-  Button,
-  IconButton,
-  Surface,
-  Text,
-  useTheme,
-} from "react-native-paper";
+import { AppState, BackHandler, Keyboard, Modal, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { ActivityIndicator, IconButton, Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BRAND, getAppColors } from "../constants/colors";
-import { useRelativeUi } from "../hooks/useRelativeUi";
-import { CenteredNutritionInput } from "../components/CenteredNutritionInput";
+import { BottomSheetModal, BottomSheetModalProvider, BottomSheetBackdrop, BottomSheetView } from "@gorhom/bottom-sheet";
+import { BRAND } from "../constants/colors";
+import { Pill } from "../components/Pill";
 import {
-  addNutritionLog,
-  addSavedFood,
-  deleteNutritionLog,
-  deleteSavedFood,
-  getNutritionLogsForDate,
-  getNutritionQuota,
-  getNutritionTotalsForDate,
-  getSavedFoods,
-  setNutritionQuota,
-  updateNutritionLogFoodName,
+  addNutritionLog, addSavedFood, deleteNutritionLog, deleteSavedFood,
+  getNutritionLogsForDate, getNutritionQuota, getNutritionTotalsForDate,
+  getSavedFoods, setNutritionQuota, updateNutritionLogFoodName,
 } from "../../db/database";
 
-const CAL_PER_P = 4;
-const CAL_PER_C = 4;
-const CAL_PER_F = 9;
-const CAL_TOLERANCE_PCT = 0.05;
-const CAL_TOLERANCE_ABS = 50;
+const S = 20;
+const CAL_P = 4, CAL_C = 4, CAL_F = 9;
+const TOLERANCE = 50; // allow up to 50 cal mismatch when all 4 are filled
 
-function parseNum(s) {
-  const t = String(s ?? "")
-    .trim()
-    .replace(",", ".");
-  if (t === "" || isNaN(Number(t))) return null;
-  return Number(t);
+function resolveNutrition(calStr, pStr, cStr, fStr) {
+  const cal = calStr.trim() ? Math.round(Number(calStr)) : null;
+  const p = pStr.trim() ? Math.round(Number(pStr)) : null;
+  const c = cStr.trim() ? Math.round(Number(cStr)) : null;
+  const f = fStr.trim() ? Math.round(Number(fStr)) : null;
+  const filled = [cal !== null, p !== null, c !== null, f !== null].filter(Boolean).length;
+  if (filled < 3) return null;
+  if (filled === 4) {
+    // All 4 filled — check coherence with tolerance
+    const macroCal = p * CAL_P + c * CAL_C + f * CAL_F;
+    if (Math.abs(cal - macroCal) > TOLERANCE) return null; // too far off
+    return { calories: cal, protein: p, carbs: c, fat: f };
+  }
+  // 3 of 4 — auto-calc the missing one
+  if (cal === null) return { calories: Math.round(p * CAL_P + c * CAL_C + f * CAL_F), protein: p, carbs: c, fat: f };
+  if (p === null) { const v = Math.round((cal - c * CAL_C - f * CAL_F) / CAL_P); return v >= 0 ? { calories: cal, protein: v, carbs: c, fat: f } : null; }
+  if (c === null) { const v = Math.round((cal - p * CAL_P - f * CAL_F) / CAL_C); return v >= 0 ? { calories: cal, protein: p, carbs: v, fat: f } : null; }
+  if (f === null) { const v = Math.round((cal - p * CAL_P - c * CAL_C) / CAL_F); return v >= 0 ? { calories: cal, protein: p, carbs: c, fat: v } : null; }
+  return null;
+}
+
+function MacroInput({ label, value, onChangeText, kb = "number-pad" }) {
+  return (
+    <View style={{ flex: 1, marginBottom: 12 }}>
+      <Text style={{ color: BRAND.textSecondary, fontSize: 11, marginBottom: 4 }}>{label}</Text>
+      <RNTextInput value={value} onChangeText={onChangeText} keyboardType={kb} placeholderTextColor={BRAND.textMuted}
+        cursorColor={BRAND.accent} selectionColor={BRAND.accent}
+        style={{ height: 44, backgroundColor: BRAND.surfaceHigh, borderRadius: 12, paddingHorizontal: 14, color: BRAND.text, fontSize: 15 }} />
+    </View>
+  );
 }
 
 export function NutritionSection({ onBack }) {
-  const theme = useTheme();
-  const colors = React.useMemo(() => getAppColors(theme), [theme]);
   const insets = useSafeAreaInsets();
-  const ui = useRelativeUi();
 
-  const blockMinHeight = React.useMemo(() => {
-    const headerEstimate = ui.topPadding + ui.headerPadding * 2 + ui.gridPadding * 2 + 40;
-    const contentHeight = Math.max(0, ui.viewportHeight - headerEstimate);
-    const oneRowHeight = (contentHeight - 2 * ui.gridPadding) / 3;
-    return Math.round(oneRowHeight * 0.5);
-  }, [ui]);
-
-  const [today, setToday] = React.useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
-  const [totals, setTotals] = React.useState({
-    calories: 0,
-    protein: 0,
-    carbs: 0,
-    fat: 0,
-  });
-  const [quota, setQuota] = React.useState({
-    calories: 2500,
-    protein: 150,
-    carbs: 300,
-    fat: 80,
-  });
-  const [calories, setCalories] = React.useState("");
-  const [protein, setProtein] = React.useState("");
-  const [carbs, setCarbs] = React.useState("");
-  const [fat, setFat] = React.useState("");
-  const [isEditingQuota, setIsEditingQuota] = React.useState(false);
-  const [namingEntryId, setNamingEntryId] = React.useState(null);
-  const [foodName, setFoodName] = React.useState("");
-  const [keyboardHeight, setKeyboardHeight] = React.useState(0);
-
-  React.useEffect(() => {
-    const show = (e) => setKeyboardHeight(e.endCoordinates.height);
-    const hide = () => setKeyboardHeight(0);
-    const subShow = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      show,
-    );
-    const subHide = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      hide,
-    );
-    return () => {
-      subShow.remove();
-      subHide.remove();
-    };
-  }, []);
-
-  const loadTotals = React.useCallback(async () => {
-    const t = await getNutritionTotalsForDate(today);
-    setTotals(t);
-  }, [today]);
-
-  const loadQuota = React.useCallback(async () => {
-    const q = await getNutritionQuota();
-    setQuota(q);
-  }, []);
-
+  // Data state
+  const [today, setToday] = React.useState(() => new Date().toISOString().slice(0, 10));
+  const [totals, setTotals] = React.useState({ calories: 0, protein: 0, carbs: 0, fat: 0 });
+  const [quota, setQuota] = React.useState({ calories: 2500, protein: 150, carbs: 300, fat: 80 });
   const [logEntries, setLogEntries] = React.useState([]);
-  const loadLogEntries = React.useCallback(async () => {
-    const list = await getNutritionLogsForDate(today);
-    setLogEntries(list);
-  }, [today]);
-
   const [savedFoodsList, setSavedFoodsList] = React.useState([]);
-  const loadSavedFoods = React.useCallback(async () => {
-    const list = await getSavedFoods();
-    setSavedFoodsList(list);
-  }, []);
 
-  React.useEffect(() => {
-    loadTotals();
-  }, [loadTotals]);
+  // Add food sheet state
+  const addSheetRef = React.useRef(null);
+  const [addMode, setAddMode] = React.useState("manual");
+  const [manualName, setManualName] = React.useState("");
+  const [manualCal, setManualCal] = React.useState("");
+  const [manualP, setManualP] = React.useState("");
+  const [manualC, setManualC] = React.useState("");
+  const [manualF, setManualF] = React.useState("");
+  const [selectedSaved, setSelectedSaved] = React.useState(null);
+  const [gramAmount, setGramAmount] = React.useState("100");
 
-  React.useEffect(() => {
-    loadQuota();
-  }, [loadQuota]);
+  // Targets sheet state
+  const targetsSheetRef = React.useRef(null);
+  const [targetCal, setTargetCal] = React.useState("");
+  const [targetP, setTargetP] = React.useState("");
+  const [targetC, setTargetC] = React.useState("");
+  const [targetF, setTargetF] = React.useState("");
 
-  React.useEffect(() => {
-    loadLogEntries();
-  }, [loadLogEntries]);
+  // Confirm modal
+  const [confirmAction, setConfirmAction] = React.useState(null);
+  const [addSheetOpen, setAddSheetOpen] = React.useState(false);
+  const [targetsSheetOpen, setTargetsSheetOpen] = React.useState(false);
 
-  React.useEffect(() => {
-    loadSavedFoods();
-  }, [loadSavedFoods]);
+  // Data loading
+  const loadTotals = React.useCallback(async () => setTotals(await getNutritionTotalsForDate(today)), [today]);
+  const loadQuota = React.useCallback(async () => setQuota(await getNutritionQuota()), []);
+  const loadEntries = React.useCallback(async () => setLogEntries(await getNutritionLogsForDate(today)), [today]);
+  const loadSaved = React.useCallback(async () => setSavedFoodsList(await getSavedFoods()), []);
 
+  React.useEffect(() => { loadTotals(); }, [loadTotals]);
+  React.useEffect(() => { loadQuota(); }, [loadQuota]);
+  React.useEffect(() => { loadEntries(); }, [loadEntries]);
+  React.useEffect(() => { loadSaved(); }, [loadSaved]);
+
+  // Day change detection
   React.useEffect(() => {
-    const checkNewDay = () => {
-      const now = new Date().toISOString().slice(0, 10);
-      if (now !== today) {
-        setToday(now);
-      }
-    };
-    const sub = AppState.addEventListener("change", (nextState) => {
-      if (nextState === "active") checkNewDay();
-    });
-    checkNewDay();
-    const interval = setInterval(checkNewDay, 60 * 1000);
-    return () => {
-      sub.remove();
-      clearInterval(interval);
-    };
+    const check = () => { const now = new Date().toISOString().slice(0, 10); if (now !== today) setToday(now); };
+    const sub = AppState.addEventListener("change", (s) => { if (s === "active") check(); });
+    check();
+    const interval = setInterval(check, 60000);
+    return () => { sub.remove(); clearInterval(interval); };
   }, [today]);
 
-  const cVal = parseNum(calories);
-  const pVal = parseNum(protein);
-  const cbVal = parseNum(carbs);
-  const fVal = parseNum(fat);
-
-  const filled = [cVal !== null, pVal !== null, cbVal !== null, fVal !== null];
-  const filledCount = filled.filter(Boolean).length;
-
-  const resolved = React.useMemo(() => {
-    if (filledCount === 4) {
-      const macroCal = pVal * CAL_PER_P + cbVal * CAL_PER_C + fVal * CAL_PER_F;
-      return {
-        calories: Math.round(macroCal),
-        protein: pVal,
-        carbs: cbVal,
-        fat: fVal,
-        _macroCal: macroCal,
-      };
-    }
-    if (filledCount === 3) {
-      if (cVal === null) {
-        const calc = pVal * CAL_PER_P + cbVal * CAL_PER_C + fVal * CAL_PER_F;
-        return {
-          calories: Math.ceil(calc),
-          protein: pVal,
-          carbs: cbVal,
-          fat: fVal,
-        };
-      }
-      if (pVal === null) {
-        const remainder = cVal - cbVal * CAL_PER_C - fVal * CAL_PER_F;
-        return {
-          calories: cVal,
-          protein: Math.ceil(remainder / CAL_PER_P),
-          carbs: cbVal,
-          fat: fVal,
-        };
-      }
-      if (cbVal === null) {
-        const remainder = cVal - pVal * CAL_PER_P - fVal * CAL_PER_F;
-        return {
-          calories: cVal,
-          protein: pVal,
-          carbs: Math.ceil(remainder / CAL_PER_C),
-          fat: fVal,
-        };
-      }
-      if (fVal === null) {
-        const remainder = cVal - pVal * CAL_PER_P - cbVal * CAL_PER_C;
-        return {
-          calories: cVal,
-          protein: pVal,
-          carbs: cbVal,
-          fat: Math.ceil(remainder / CAL_PER_F),
-        };
-      }
-    }
-    return null;
-  }, [cVal, pVal, cbVal, fVal, filledCount]);
-
-  const isValid = React.useMemo(() => {
-    if (!resolved) return false;
-    const {
-      calories: rc,
-      protein: rp,
-      carbs: rcb,
-      fat: rf,
-      _macroCal,
-    } = resolved;
-    if (rc < 0 || rp < 0 || rcb < 0 || rf < 0) return false;
-    if (filledCount === 4 && _macroCal != null) {
-      const tolerance = Math.max(
-        CAL_TOLERANCE_ABS,
-        _macroCal * CAL_TOLERANCE_PCT,
-      );
-      if (Math.abs(cVal - _macroCal) > tolerance) return false;
-    }
-    return true;
-  }, [resolved, filledCount, cVal]);
-
-  const canSave = filledCount >= 3;
-  const showError = canSave && !isValid;
-
-  const openQuotaEdit = React.useCallback(() => {
-    setNamingEntryId(null);
-    setFoodName("");
-    setCalories(String(Math.round(quota.calories)));
-    setProtein(String(Math.round(quota.protein)));
-    setCarbs(String(Math.round(quota.carbs)));
-    setFat(String(Math.round(quota.fat)));
-    setIsEditingQuota(true);
-  }, [quota.calories, quota.protein, quota.carbs, quota.fat]);
-
-  const exitQuotaEdit = React.useCallback(() => {
-    setIsEditingQuota(false);
-    setCalories("");
-    setProtein("");
-    setCarbs("");
-    setFat("");
-  }, []);
-
+  // Back handler
   React.useEffect(() => {
-    const handleBack = () => {
-      if (namingEntryId != null) {
-        setNamingEntryId(null);
-        setFoodName("");
-        return true;
-      }
-      if (isEditingQuota) {
-        exitQuotaEdit();
-        return true;
-      }
-      if (onBack) {
-        onBack();
-        return true;
-      }
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (confirmAction) { setConfirmAction(null); return true; }
+      if (selectedSaved) { setSelectedSaved(null); return true; }
+      if (addSheetOpen) { addSheetRef.current?.dismiss(); return true; }
+      if (targetsSheetOpen) { targetsSheetRef.current?.dismiss(); return true; }
+      if (onBack) { onBack(); return true; }
       return false;
-    };
-    const sub = BackHandler.addEventListener("hardwareBackPress", handleBack);
-    return () => sub.remove();
-  }, [isEditingQuota, namingEntryId, exitQuotaEdit, onBack]);
-
-  const handleLog = React.useCallback(async () => {
-    if (!resolved || !isValid) return;
-    Keyboard.dismiss();
-    const { _macroCal, ...toSave } = resolved;
-    await addNutritionLog({
-      date: today,
-      calories: toSave.calories,
-      protein: toSave.protein,
-      carbs: toSave.carbs,
-      fat: toSave.fat,
     });
-    setCalories("");
-    setProtein("");
-    setCarbs("");
-    setFat("");
-    loadTotals();
-    loadLogEntries();
-  }, [today, resolved, isValid, loadTotals, loadLogEntries]);
+    return () => sub.remove();
+  }, [onBack, confirmAction, selectedSaved, addSheetOpen, targetsSheetOpen]);
 
-  const handleSaveQuota = React.useCallback(async () => {
-    if (!resolved || !isValid) return;
+  // Actions
+  function openAddSheet() {
+    setAddMode("manual"); setManualName(""); setManualCal(""); setManualP(""); setManualC(""); setManualF("");
+    setSelectedSaved(null); setGramAmount("100");
+    setAddSheetOpen(true);
+    addSheetRef.current?.present();
+  }
+
+  function openTargetsSheet() {
+    setTargetCal(String(Math.round(quota.calories)));
+    setTargetP(String(Math.round(quota.protein)));
+    setTargetC(String(Math.round(quota.carbs)));
+    setTargetF(String(Math.round(quota.fat)));
+    setTargetsSheetOpen(true);
+    targetsSheetRef.current?.present();
+  }
+
+  async function handleLogManual() {
+    const resolved = resolveNutrition(manualCal, manualP, manualC, manualF);
+    if (!resolved) return;
+    const name = manualName.trim();
+    await addNutritionLog({ date: today, ...resolved, foodName: name });
     Keyboard.dismiss();
-    const { _macroCal, ...toSave } = resolved;
-    await setNutritionQuota(toSave);
-    loadQuota();
-    exitQuotaEdit();
-  }, [resolved, isValid, loadQuota, exitQuotaEdit]);
+    setManualName(""); setManualCal(""); setManualP(""); setManualC(""); setManualF("");
+    await loadEntries(); await loadTotals();
+  }
 
-  const handleSaveFoodName = React.useCallback(async () => {
-    if (namingEntryId == null) return;
+  async function handleAddFromSaved() {
+    if (!selectedSaved) return;
+    const g = Number(gramAmount) || 100;
+    const scale = g / (selectedSaved.servingGrams || 100);
+    const cal = Math.round(selectedSaved.calories * scale);
+    const p = Math.round(selectedSaved.protein * scale);
+    const c = Math.round(selectedSaved.carbs * scale);
+    const f = Math.round(selectedSaved.fat * scale);
+    await addNutritionLog({ date: today, calories: cal, protein: p, carbs: c, fat: f, foodName: selectedSaved.name });
     Keyboard.dismiss();
-    await updateNutritionLogFoodName(namingEntryId, foodName);
-    const entry = logEntries.find((e) => e.id === namingEntryId);
-    if (entry && foodName.trim()) {
-      await addSavedFood({
-        name: foodName.trim(),
-        calories: entry.calories,
-        protein: entry.protein,
-        carbs: entry.carbs,
-        fat: entry.fat,
-      });
-      loadSavedFoods();
-    }
-    setNamingEntryId(null);
-    setFoodName("");
-    loadLogEntries();
-  }, [namingEntryId, foodName, logEntries, loadLogEntries, loadSavedFoods]);
+    setSelectedSaved(null);
+    await loadEntries(); await loadTotals();
+  }
 
-  const contentPadding = {
-    paddingLeft: insets.left + ui.gridPadding,
-    paddingRight: insets.right + ui.gridPadding,
-    paddingBottom: insets.bottom + ui.gridPadding,
-    paddingTop: ui.gridPadding / 2,
-  };
-  const placeholderColor = theme.dark
-    ? "rgba(255,255,255,0.4)"
-    : "rgba(0,0,0,0.4)";
+  async function handleSaveTargets() {
+    const resolved = resolveNutrition(targetCal, targetP, targetC, targetF);
+    if (!resolved) return;
+    await setNutritionQuota(resolved);
+    Keyboard.dismiss();
+    targetsSheetRef.current?.dismiss();
+    await loadQuota();
+  }
 
-  const rowLayout = {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: ui.rowGap,
-  };
-  const colFlex = (n) => ({ flex: n, minWidth: 0 });
+  function handleDeleteEntry(entry) {
+    setConfirmAction({
+      title: "Delete Entry", message: "Remove this food log?", label: "Delete",
+      onConfirm: async () => { setConfirmAction(null); await deleteNutritionLog(entry.id); await loadEntries(); await loadTotals(); },
+    });
+  }
 
-  const S = 20;
+  function handleDeleteSaved(food) {
+    setConfirmAction({
+      title: "Delete Saved Food", message: `Remove "${food.name}" from saved?`, label: "Delete",
+      onConfirm: async () => { setConfirmAction(null); await deleteSavedFood(food.id); await loadSaved(); },
+    });
+  }
 
-  const translateY =
-    namingEntryId != null && keyboardHeight > 0 ? -keyboardHeight * 0.15 : 0;
+  // Backdrop
+  const renderBackdrop = React.useCallback((props) => (
+    <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} pressBehavior="close" style={[props.style, { backgroundColor: BRAND.overlay }]} />
+  ), []);
 
-  return (
-    <View style={{ flex: 1, backgroundColor: BRAND.bg }}>
-      {/* Header */}
-      <View style={{ paddingTop: insets.top + S, paddingBottom: S * 0.75, paddingHorizontal: S }}>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "600", flex: 1 }}>Calorie Intake</Text>
-          <IconButton icon="calendar-month-outline" size={20} iconColor={BRAND.textSecondary} style={{ margin: 0 }} />
-        </View>
-      </View>
-      <View style={{ height: 1, backgroundColor: BRAND.border }} />
-      <View style={{ flex: 1, backgroundColor: BRAND.bg }}>
-        <View
-          style={[
-            { flex: 1, flexDirection: "column", transform: [{ translateY }] },
-            contentPadding,
-          ]}
-        >
-          <Surface
-            elevation={1}
-            style={{
-              borderRadius: ui.cardBorderRadius,
-              paddingHorizontal: ui.nutritionBlockPaddingH,
-              paddingTop: ui.nutritionBlockPaddingTop,
-              paddingBottom: ui.nutritionBlockPaddingBottom,
-              height: blockMinHeight,
-              minHeight: blockMinHeight,
-              alignSelf: "stretch",
-              justifyContent: "center",
-            }}
-          >
-            <View style={{ alignSelf: "stretch" }}>
-              <View style={rowLayout}>
-                {[
-                  {
-                    key: "cal",
-                    current: totals.calories,
-                    target: quota.calories,
-                    flex: 26,
-                  },
-                  {
-                    key: "p",
-                    current: totals.protein,
-                    target: quota.protein,
-                    flex: 16,
-                  },
-                  {
-                    key: "c",
-                    current: totals.carbs,
-                    target: quota.carbs,
-                    flex: 16,
-                  },
-                  { key: "f", current: totals.fat, target: quota.fat, flex: 16 },
-                ].map(({ key, current, target, flex: f }) => (
-                  <View
-                    key={key}
-                    style={[
-                      colFlex(f),
-                      { alignItems: "center", justifyContent: "center" },
-                    ]}
-                  >
-                    <Text variant="titleMedium">{Math.round(current)}</Text>
-                    <View
-                      style={{
-                        width: "80%",
-                        height: ui.dividerHeight,
-                        backgroundColor: colors.outline,
-                        marginVertical: ui.dividerMarginV,
-                      }}
-                    />
-                    <Text variant="labelMedium">{Math.round(target)}</Text>
-                  </View>
-                ))}
-                <View
-                  style={[
-                    colFlex(26),
-                    { alignItems: "center", justifyContent: "center" },
-                  ]}
-                >
-                  <IconButton
-                    icon="cog"
-                    size={ui.iconLg}
-                    onPress={() =>
-                      isEditingQuota ? exitQuotaEdit() : openQuotaEdit()
-                    }
-                    mode={isEditingQuota ? "contained" : "outlined"}
-                  />
-                </View>
-              </View>
-              <View
-                style={[rowLayout, { marginTop: ui.numbersToInputsGap }]}
-              >
-                {namingEntryId != null ? (
-                  <>
-                    <View
-                      style={{
-                        flex: 82,
-                        minWidth: 0,
-                        marginRight: -3 * ui.rowGap,
-                      }}
-                    >
-                      <CenteredNutritionInput
-                        value={foodName}
-                        onChangeText={setFoodName}
-                        placeholder="Food name"
-                        controlHeight={ui.controlHeight}
-                        controlRadius={ui.controlRadius}
-                        controlBorderWidth={ui.controlBorderWidth}
-                        placeholderColor={placeholderColor}
-                        outlineColor={colors.outline}
-                        keyboardType="default"
-                      />
-                    </View>
-                    <View style={colFlex(0)} />
-                    <View style={colFlex(0)} />
-                    <View style={colFlex(0)} />
-                  </>
-                ) : (
-                  <>
-                    <View style={colFlex(26)}>
-                      <CenteredNutritionInput
-                        value={calories}
-                        onChangeText={setCalories}
-                        placeholder="Cal"
-                        controlHeight={ui.controlHeight}
-                        controlRadius={ui.controlRadius}
-                        controlBorderWidth={ui.controlBorderWidth}
-                        placeholderColor={placeholderColor}
-                        outlineColor={colors.outline}
-                      />
-                    </View>
-                    <View style={colFlex(16)}>
-                      <CenteredNutritionInput
-                        value={protein}
-                        onChangeText={setProtein}
-                        placeholder="P"
-                        controlHeight={ui.controlHeight}
-                        controlRadius={ui.controlRadius}
-                        controlBorderWidth={ui.controlBorderWidth}
-                        placeholderColor={placeholderColor}
-                        outlineColor={colors.outline}
-                      />
-                    </View>
-                    <View style={colFlex(16)}>
-                      <CenteredNutritionInput
-                        value={carbs}
-                        onChangeText={setCarbs}
-                        placeholder="C"
-                        controlHeight={ui.controlHeight}
-                        controlRadius={ui.controlRadius}
-                        controlBorderWidth={ui.controlBorderWidth}
-                        placeholderColor={placeholderColor}
-                        outlineColor={colors.outline}
-                      />
-                    </View>
-                    <View style={colFlex(16)}>
-                      <CenteredNutritionInput
-                        value={fat}
-                        onChangeText={setFat}
-                        placeholder="F"
-                        controlHeight={ui.controlHeight}
-                        controlRadius={ui.controlRadius}
-                        controlBorderWidth={ui.controlBorderWidth}
-                        placeholderColor={placeholderColor}
-                        outlineColor={colors.outline}
-                      />
-                    </View>
-                  </>
-                )}
-                <View style={colFlex(26)}>
-                  <Button
-                    mode="contained"
-                    onPress={
-                      isEditingQuota
-                        ? handleSaveQuota
-                        : namingEntryId != null
-                          ? handleSaveFoodName
-                          : handleLog
-                    }
-                    disabled={
-                      namingEntryId != null ? false : !canSave || showError
-                    }
-                    buttonColor={showError ? "#d32f2f" : undefined}
-                    style={{
-                      width: "100%",
-                      height: ui.controlHeight,
-                      borderRadius: ui.controlRadius,
-                    }}
-                    contentStyle={{
-                      height: ui.controlHeight,
-                      flexShrink: 0,
-                    }}
-                    labelStyle={{ flexShrink: 0 }}
-                  >
-                    {showError
-                      ? "X"
-                      : isEditingQuota
-                        ? "SAVE"
-                        : namingEntryId != null
-                          ? "SAVE"
-                          : "LOG"}
-                  </Button>
-                </View>
-              </View>
-            </View>
-          </Surface>
-          <View
-            style={{
-              flex: 1,
-              minHeight: 0,
-              marginTop: ui.gridPadding,
-              flexDirection: "column",
-              gap: ui.gridPadding,
-            }}
-          >
-            <Surface
-              elevation={1}
-              style={{
-                flex: 1,
-                minHeight: 0,
-                borderRadius: ui.cardBorderRadius,
-                paddingHorizontal: ui.nutritionBlockPaddingH,
-                paddingVertical: ui.surfacePaddingV,
-                overflow: "hidden",
-              }}
-            >
-              <ScrollView
-                style={{ flex: 1 }}
-                contentContainerStyle={{ paddingRight: ui.nutritionActionsGap, flexGrow: 1 }}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {logEntries.length === 0 ? (
-                  <View style={{ paddingVertical: ui.nutritionEmptyPaddingV, alignItems: "center" }}>
-                    <Text variant="bodySmall" style={{ opacity: 0.6 }}>
-                      No entries today
-                    </Text>
-                  </View>
-                ) : (
-                  logEntries.map((entry) => (
-                    <View
-                      key={entry.id}
-                      style={[rowLayout, { paddingVertical: ui.nutritionEntryPaddingV }]}
-                    >
-                      <View
-                        style={[
-                          colFlex(26),
-                          { alignItems: "center", justifyContent: "center" },
-                        ]}
-                      >
-                        <Text
-                          variant="bodySmall"
-                          numberOfLines={1}
-                          style={{ textAlign: "center", width: "100%" }}
-                        >
-                          {Math.round(entry.calories)}
-                        </Text>
-                      </View>
-                      <View
-                        style={[
-                          colFlex(16),
-                          {
-                            alignItems: "center",
-                            justifyContent: "center",
-                            marginLeft: ui.nutritionEntryMarginL,
-                          },
-                        ]}
-                      >
-                        <Text
-                          variant="bodySmall"
-                          numberOfLines={1}
-                          style={{ textAlign: "center", width: "100%" }}
-                        >
-                          {Math.round(entry.protein)}
-                        </Text>
-                      </View>
-                      <View
-                        style={[
-                          colFlex(16),
-                          {
-                            alignItems: "center",
-                            justifyContent: "center",
-                            marginLeft: ui.nutritionEntryMarginL,
-                          },
-                        ]}
-                      >
-                        <Text
-                          variant="bodySmall"
-                          numberOfLines={1}
-                          style={{ textAlign: "center", width: "100%" }}
-                        >
-                          {Math.round(entry.carbs)}
-                        </Text>
-                      </View>
-                      <View
-                        style={[
-                          colFlex(16),
-                          {
-                            alignItems: "center",
-                            justifyContent: "center",
-                            marginLeft: ui.nutritionEntryMarginL,
-                          },
-                        ]}
-                      >
-                        <Text
-                          variant="bodySmall"
-                          numberOfLines={1}
-                          style={{ textAlign: "center", width: "100%" }}
-                        >
-                          {Math.round(entry.fat)}
-                        </Text>
-                      </View>
-                      <View
-                        style={[
-                          colFlex(26),
-                          {
-                            flexDirection: "row",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: ui.nutritionActionsGap,
-                          },
-                        ]}
-                      >
-                        <IconButton
-                          icon="content-save"
-                          size={ui.iconMd}
-                          onPress={() => {
-                            setNamingEntryId(entry.id);
-                            setFoodName(entry.foodName ?? "");
-                          }}
-                          mode="text"
-                          style={{ margin: 0 }}
-                        />
-                        <IconButton
-                          icon="delete-outline"
-                          size={ui.iconMd}
-                          onPress={async () => {
-                            await deleteNutritionLog(entry.id);
-                            loadLogEntries();
-                            loadTotals();
-                          }}
-                          mode="text"
-                          style={{ margin: 0 }}
-                        />
-                      </View>
-                    </View>
-                  ))
-                )}
-              </ScrollView>
-            </Surface>
-            <Surface
-              elevation={1}
-              style={{
-                flex: 1,
-                minHeight: 0,
-                borderRadius: ui.cardBorderRadius,
-                paddingHorizontal: ui.nutritionBlockPaddingH,
-                paddingVertical: ui.surfacePaddingV,
-                overflow: "hidden",
-              }}
-            >
-              <ScrollView
-                style={{ flex: 1 }}
-                contentContainerStyle={{ paddingRight: ui.nutritionActionsGap, flexGrow: 1 }}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-              >
-                {savedFoodsList.length === 0 ? (
-                  <View style={{ paddingVertical: ui.nutritionEmptyPaddingV, alignItems: "center" }}>
-                    <Text variant="bodySmall" style={{ opacity: 0.6 }}>
-                      No saved foods
-                    </Text>
-                  </View>
-                ) : (
-                  savedFoodsList.map((food) => (
-                    <Pressable
-                      key={food.id}
-                      onPress={() => {
-                        setCalories(String(Math.round(food.calories)));
-                        setProtein(String(Math.round(food.protein)));
-                        setCarbs(String(Math.round(food.carbs)));
-                        setFat(String(Math.round(food.fat)));
-                      }}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        paddingVertical: ui.savedFoodPaddingV,
-                      }}
-                    >
-                      <Text
-                        variant="bodySmall"
-                        numberOfLines={1}
-                        style={{ flex: 1, minWidth: 0 }}
-                      >
-                        {food.name}
-                      </Text>
-                      <Text
-                        variant="labelSmall"
-                        numberOfLines={1}
-                        style={{ opacity: 0.6, marginRight: ui.savedFoodMarginR }}
-                      >
-                        {Math.round(food.calories)} · {Math.round(food.protein)} ·{" "}
-                        {Math.round(food.carbs)} · {Math.round(food.fat)}
-                      </Text>
-                      <IconButton
-                        icon="delete-outline"
-                        size={ui.iconMd}
-                        onPress={async () => {
-                          await deleteSavedFood(food.id);
-                          loadSavedFoods();
-                        }}
-                        style={{ margin: 0 }}
-                      />
-                    </Pressable>
-                  ))
-                )}
-              </ScrollView>
-            </Surface>
+  const sheetConfig = { enablePanDownToClose: true, enableDynamicSizing: false, enableOverDrag: false, enableContentPanningGesture: false,
+    backdropComponent: renderBackdrop, handleIndicatorStyle: { backgroundColor: BRAND.border, width: 36 }, handleStyle: { paddingVertical: 12 },
+    backgroundStyle: { backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 } };
+
+  // Progress percentage
+  const calPct = quota.calories > 0 ? Math.min(100, (totals.calories / quota.calories) * 100) : 0;
+
+  // Confirm modal
+  const confirmModal = (
+    <Modal visible={confirmAction !== null} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setConfirmAction(null)}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setConfirmAction(null)}>
+          <View style={{ flex: 1, backgroundColor: BRAND.overlay }} />
+        </Pressable>
+        <View style={{ width: "82%", maxWidth: 320, backgroundColor: BRAND.surface, borderRadius: 20, padding: S * 1.25 }}>
+          <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", marginBottom: 6 }}>{confirmAction?.title}</Text>
+          <Text style={{ color: BRAND.textSecondary, fontSize: 14, marginBottom: S }}>{confirmAction?.message}</Text>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <Pill label="Cancel" onPress={() => setConfirmAction(null)} />
+            <Pressable onPress={confirmAction?.onConfirm} style={({ pressed }) => ({ flex: 1, height: 44, borderRadius: 12, backgroundColor: BRAND.error, justifyContent: "center", alignItems: "center", opacity: pressed ? 0.8 : 1 })}>
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>{confirmAction?.label}</Text>
+            </Pressable>
           </View>
         </View>
       </View>
+    </Modal>
+  );
+
+  return (
+    <BottomSheetModalProvider>
+    <View style={{ flex: 1, backgroundColor: BRAND.bg }}>
+
+      {/* ── Header ── */}
+      <View style={{ paddingTop: insets.top + S, paddingBottom: S * 0.75, paddingHorizontal: S }}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", flex: 1 }}>Calorie Intake</Text>
+          <IconButton icon="calendar-month-outline" size={20} iconColor={BRAND.textSecondary} style={{ margin: 0 }} />
+        </View>
+      </View>
+      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: BRAND.border }} />
+
+      {/* ── Daily Summary ── */}
+      <Pressable style={({ pressed }) => ({ padding: S, opacity: pressed ? 0.8 : 1 })} onPress={openTargetsSheet}>
+        <View style={{ backgroundColor: BRAND.surface, borderRadius: 16, padding: S }}>
+          <View style={{ flexDirection: "row" }}>
+            {[
+              { label: "Calories", cur: totals.calories, tgt: quota.calories },
+              { label: "Protein", cur: totals.protein, tgt: quota.protein },
+              { label: "Carbs", cur: totals.carbs, tgt: quota.carbs },
+              { label: "Fat", cur: totals.fat, tgt: quota.fat },
+            ].map((m) => (
+              <View key={m.label} style={{ flex: 1, alignItems: "center" }}>
+                <Text style={{ color: BRAND.textSecondary, fontSize: 10, fontWeight: "600", letterSpacing: 0.5 }}>{m.label}</Text>
+                <Text style={{ color: BRAND.text, fontSize: 20, fontWeight: "700", marginTop: 2 }}>{Math.round(m.cur)}</Text>
+                <Text style={{ color: BRAND.textMuted, fontSize: 11 }}>/ {Math.round(m.tgt)}</Text>
+              </View>
+            ))}
+          </View>
+          <View style={{ marginTop: 14, height: 3, borderRadius: 2, backgroundColor: BRAND.surfaceHigh }}>
+            <View style={{ width: `${calPct}%`, height: 3, borderRadius: 2, backgroundColor: BRAND.accent }} />
+          </View>
+        </View>
+      </Pressable>
+
+      {/* ── Today's Log ── */}
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: S, paddingBottom: S }} showsVerticalScrollIndicator={false} bounces={false}>
+        {logEntries.length === 0 ? (
+          <Text style={{ color: BRAND.textMuted, fontSize: 13 }}>No entries yet</Text>
+        ) : (
+          logEntries.map((entry) => (
+            <Pressable key={entry.id} onPress={() => handleDeleteEntry(entry)} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
+              <View style={{ backgroundColor: BRAND.surface, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 16, marginBottom: 10 }}>
+                <Text style={{ color: BRAND.text, fontSize: 15, fontWeight: "500" }} numberOfLines={1}>
+                  {entry.foodName || "New Entry"}
+                </Text>
+                <Text style={{ color: BRAND.textMuted, fontSize: 12, marginTop: 4 }}>
+                  {Math.round(entry.calories)} cal · {Math.round(entry.protein)}P · {Math.round(entry.carbs)}C · {Math.round(entry.fat)}F
+                </Text>
+              </View>
+            </Pressable>
+          ))
+        )}
+      </ScrollView>
+
+      {/* ── Add Food Button ── */}
+      <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
+        <Pressable onPress={openAddSheet} style={({ pressed }) => ({ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.border, borderStyle: "dashed", justifyContent: "center", alignItems: "center", opacity: pressed ? 0.8 : 1 })}>
+          <Text style={{ color: BRAND.textSecondary, fontSize: 14, fontWeight: "500" }}>+ Add Food</Text>
+        </Pressable>
+      </View>
+
+      {/* ── Add Food Sheet ── */}
+      <BottomSheetModal ref={addSheetRef} snapPoints={["57%"]} {...sheetConfig} onDismiss={() => setAddSheetOpen(false)}>
+        <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
+          <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S }}>Add Food</Text>
+
+          {/* Mode toggle */}
+          <View style={{ flexDirection: "row", gap: 10, marginBottom: S }}>
+            <Pill label="New Food" active={addMode === "manual"} onPress={() => setAddMode("manual")} />
+            <Pill label="Saved Foods" active={addMode === "saved"} onPress={() => setAddMode("saved")} />
+          </View>
+
+          {addMode === "manual" ? (
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false}>
+              <MacroInput label="Food name" value={manualName} onChangeText={setManualName} kb="default" />
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <MacroInput label="Calories" value={manualCal} onChangeText={setManualCal} />
+                <MacroInput label="Protein" value={manualP} onChangeText={setManualP} />
+              </View>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <MacroInput label="Carbs" value={manualC} onChangeText={setManualC} />
+                <MacroInput label="Fat" value={manualF} onChangeText={setManualF} />
+              </View>
+            </ScrollView>
+          ) : (
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled">
+              {savedFoodsList.length === 0 ? (
+                <Text style={{ color: BRAND.textMuted, fontSize: 13 }}>No saved foods yet</Text>
+              ) : (
+                savedFoodsList.map((food) => (
+                  <Pressable key={food.id} onPress={() => {
+                    if (selectedSaved?.id === food.id) { setSelectedSaved(null); }
+                    else { setSelectedSaved(food); setGramAmount(String(food.servingGrams)); }
+                  }}>
+                    <View style={{ backgroundColor: selectedSaved?.id === food.id ? BRAND.surfaceHigh : BRAND.surface, borderRadius: 12, padding: 14, marginBottom: 8 }}>
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                        <Text style={{ color: BRAND.text, fontWeight: "500", flex: 1 }} numberOfLines={1}>{food.name}</Text>
+                        <Pressable onPress={() => handleDeleteSaved(food)} hitSlop={8}>
+                          <Text style={{ color: BRAND.error, fontSize: 12 }}>Delete</Text>
+                        </Pressable>
+                      </View>
+                      <Text style={{ color: BRAND.textMuted, fontSize: 12, marginTop: 2 }}>
+                        {Math.round(food.calories)} cal · {Math.round(food.protein)}P · {Math.round(food.carbs)}C · {Math.round(food.fat)}F per {food.servingGrams}g
+                      </Text>
+                      {selectedSaved?.id === food.id && (
+                        <View style={{ flexDirection: "row", alignItems: "center", marginTop: 12, gap: 10 }}>
+                          <RNTextInput value={gramAmount} onChangeText={setGramAmount} keyboardType="decimal-pad"
+                            cursorColor={BRAND.accent} selectionColor={BRAND.accent}
+                            style={{ flex: 1, height: 44, backgroundColor: BRAND.bg, borderRadius: 12, paddingHorizontal: 14, color: BRAND.text, fontSize: 15 }} />
+                          <Text style={{ color: BRAND.textSecondary, fontSize: 13 }}>grams</Text>
+                        </View>
+                      )}
+                    </View>
+                  </Pressable>
+                ))
+              )}
+              {selectedSaved && <Pressable onPress={() => setSelectedSaved(null)} style={{ flex: 1, minHeight: 100 }} />}
+            </ScrollView>
+          )}
+
+          {/* Action */}
+          {addMode === "manual" && (() => {
+            const canResolve = !!resolveNutrition(manualCal, manualP, manualC, manualF);
+            return (
+          <View style={{ flexDirection: "row", gap: 10, marginTop: S }}>
+            <>
+              <Pill label="LOG" active disabled={!canResolve} onPress={handleLogManual} uppercase />
+              <Pill label="SAVE" disabled={!manualName.trim() || !canResolve} onPress={async () => {
+                const n = manualName.trim(); if (!n) return;
+                const resolved = resolveNutrition(manualCal, manualP, manualC, manualF);
+                if (!resolved) return;
+                await addSavedFood({ name: n, ...resolved, servingGrams: 100 });
+                await loadSaved(); Keyboard.dismiss();
+                setManualName(""); setManualCal(""); setManualP(""); setManualC(""); setManualF("");
+              }} uppercase />
+            </>
+          </View>
+            );
+          })()}
+          {addMode === "saved" && (
+          <View style={{ flexDirection: "row", gap: 10, marginTop: S }}>
+              <Pill label="ADD" active={!!selectedSaved} disabled={!selectedSaved} onPress={handleAddFromSaved} uppercase />
+          </View>
+          )}
+        </View>
+      </BottomSheetModal>
+
+      {/* ── Targets Sheet ── */}
+      <BottomSheetModal ref={targetsSheetRef} snapPoints={["57%"]} {...sheetConfig} onDismiss={() => setTargetsSheetOpen(false)}>
+        <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
+          <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }}>Daily Targets</Text>
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false}>
+            <MacroInput label="Calories" value={targetCal} onChangeText={setTargetCal} />
+            <MacroInput label="Protein" value={targetP} onChangeText={setTargetP} />
+            <MacroInput label="Carbs" value={targetC} onChangeText={setTargetC} />
+            <MacroInput label="Fat" value={targetF} onChangeText={setTargetF} />
+          </ScrollView>
+          <View style={{ flexDirection: "row", marginTop: S }}>
+            <Pill label="SAVE" active disabled={!resolveNutrition(targetCal, targetP, targetC, targetF)} onPress={handleSaveTargets} uppercase />
+          </View>
+        </View>
+      </BottomSheetModal>
+
+      {confirmModal}
     </View>
+    </BottomSheetModalProvider>
   );
 }
