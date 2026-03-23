@@ -1,8 +1,8 @@
 import * as React from "react";
 import { AppState, BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
-import { ActivityIndicator, IconButton, Text } from "react-native-paper";
+import { IconButton, Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BottomSheetModal, BottomSheetModalProvider, BottomSheetBackdrop, BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { BottomSheetModal, BottomSheetModalProvider, BottomSheetBackdrop } from "@gorhom/bottom-sheet";
 import { BRAND } from "../constants/colors";
 import { Pill } from "../components/Pill";
 import {
@@ -61,7 +61,7 @@ export function NutritionSection({ onBack }) {
   const addSheetRef = React.useRef(null);
   const [kbOpen, setKbOpen] = React.useState(false);
   const addSnapPoints = React.useMemo(() => [kbOpen ? "83%" : "57%"], [kbOpen]);
-  const targetSnapPoints = React.useMemo(() => [kbOpen ? "92%" : "57%"], [kbOpen]);
+  const targetSnapPoints = React.useMemo(() => [kbOpen ? "80%" : "57%"], [kbOpen]);
   const [addMode, setAddMode] = React.useState("manual");
   const [manualName, setManualName] = React.useState("");
   const [manualCal, setManualCal] = React.useState("");
@@ -88,6 +88,8 @@ export function NutritionSection({ onBack }) {
   const loadQuota = React.useCallback(async () => setQuota(await getNutritionQuota()), []);
   const loadEntries = React.useCallback(async () => setLogEntries(await getNutritionLogsForDate(today)), [today]);
   const loadSaved = React.useCallback(async () => setSavedFoodsList(await getSavedFoods()), []);
+
+  const [backKey, setBackKey] = React.useState(0);
 
   React.useEffect(() => { loadTotals(); }, [loadTotals]);
   React.useEffect(() => { loadQuota(); }, [loadQuota]);
@@ -123,7 +125,7 @@ export function NutritionSection({ onBack }) {
       return false;
     });
     return () => sub.remove();
-  }, [onBack, confirmAction, selectedSaved, addSheetOpen, targetsSheetOpen]);
+  }, [onBack, confirmAction, selectedSaved, addSheetOpen, targetsSheetOpen, backKey]);
 
   // Actions
   function openAddSheet() {
@@ -230,7 +232,7 @@ export function NutritionSection({ onBack }) {
       <View style={{ paddingTop: insets.top + S, paddingBottom: S * 0.75, paddingHorizontal: S }}>
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", flex: 1 }}>Calorie Intake</Text>
-          <IconButton icon="calendar-month-outline" size={20} iconColor={BRAND.textSecondary} style={{ margin: 0 }} />
+          <IconButton icon="silverware-variant" size={20} iconColor={BRAND.accent} style={{ margin: 0 }} />
         </View>
       </View>
       <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: BRAND.border }} />
@@ -280,13 +282,13 @@ export function NutritionSection({ onBack }) {
 
       {/* ── Add Food Button ── */}
       <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
-        <Pressable onPress={openAddSheet} style={({ pressed }) => ({ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.border, borderStyle: "dashed", justifyContent: "center", alignItems: "center", opacity: pressed ? 0.8 : 1 })}>
-          <Text style={{ color: BRAND.textSecondary, fontSize: 14, fontWeight: "500" }}>+ Add Food</Text>
+        <Pressable onPress={openAddSheet} style={({ pressed }) => ({ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center", opacity: pressed ? 0.8 : 1 })}>
+          <Text style={{ color: BRAND.accent, fontSize: 14, fontWeight: "500" }}>+ Add Food</Text>
         </Pressable>
       </View>
 
       {/* ── Add Food Sheet ── */}
-      <BottomSheetModal ref={addSheetRef} snapPoints={addSnapPoints} {...sheetConfig} onDismiss={() => setAddSheetOpen(false)}>
+      <BottomSheetModal ref={addSheetRef} snapPoints={addSnapPoints} {...sheetConfig} onDismiss={() => { setAddSheetOpen(false); setBackKey((k) => k + 1); }}>
         <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
           <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S }}>Add Food</Text>
 
@@ -372,7 +374,7 @@ export function NutritionSection({ onBack }) {
       </BottomSheetModal>
 
       {/* ── Targets Sheet ── */}
-      <BottomSheetModal ref={targetsSheetRef} snapPoints={targetSnapPoints} {...sheetConfig} onDismiss={() => setTargetsSheetOpen(false)}>
+      <BottomSheetModal ref={targetsSheetRef} snapPoints={targetSnapPoints} {...sheetConfig} onDismiss={() => { setTargetsSheetOpen(false); setBackKey((k) => k + 1); }}>
         <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
           <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }}>Daily Targets</Text>
           <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false} contentContainerStyle={{ paddingBottom: 200 }}>
