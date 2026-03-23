@@ -14,23 +14,3 @@ export const BRAND = {
   success: "#22C55E",
   overlay: "rgba(0,0,0,0.7)",
 };
-
-export function getAppColors(theme) {
-  return {
-    background: BRAND.bg,
-    surface: BRAND.surface,
-    surfaceHigh: BRAND.surfaceHigh,
-    accent: BRAND.accent,
-    accentMuted: BRAND.accentMuted,
-    text: BRAND.text,
-    textSecondary: BRAND.textSecondary,
-    textMuted: BRAND.textMuted,
-    border: BRAND.border,
-    outline: BRAND.border,
-    outlineVariant: BRAND.border,
-    error: BRAND.error,
-    success: BRAND.success,
-    overlay: BRAND.overlay,
-    readyHighlight: BRAND.surfaceHigh,
-  };
-}

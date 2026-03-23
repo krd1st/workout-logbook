@@ -44,6 +44,7 @@ export function ExerciseForm({
 
   const inputProps = (val, set, kb = "number-pad") => ({
     mode: "outlined", value: val, onChangeText: set, keyboardType: kb,
+    cursorColor: BRAND.accent, selectionColor: "transparent",
     style: { flex: 1, height: 44, backgroundColor: "transparent", textAlign: "center" },
     contentStyle: { height: 44, textAlign: "center" },
     outlineStyle: { borderRadius: 10, borderWidth: 1, borderColor: BRAND.border },

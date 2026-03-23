@@ -39,7 +39,6 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
 
   const [showAddRoutine, setShowAddRoutine] = React.useState(false);
   const [newRoutineName, setNewRoutineName] = React.useState("");
-  const [showAddExercise, setShowAddExercise] = React.useState(false);
   const [editingHeaderName, setEditingHeaderName] = React.useState(false);
   const [headerNameDraft, setHeaderNameDraft] = React.useState("");
   const [confirmAction, setConfirmAction] = React.useState(null);
@@ -121,7 +120,6 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
 
   function updateSet(i, f, v) { setSets((p) => p.map((s, j) => j === i ? { ...s, [f]: v } : s)); }
 
-  const [logSaved, setLogSaved] = React.useState(false);
   function onSaveLog() {
     // Ensure workoutId exists
     let wId = workoutId;
@@ -145,8 +143,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       setRefreshToken((x) => x + 1);
     };
 
-    setLogSaved(true);
-    doLog().finally(() => setTimeout(() => setLogSaved(false), 1500));
+    doLog().then(() => closeSheetAnimated());
   }
   async function onDeleteSession(d) {
     if (!selectedExercise) return;
@@ -182,7 +179,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   async function openDay(r) {
     try {
       const [ex, wId] = await Promise.all([getRoutineExercises(r.id), startWorkout({ splitIndex: r.sort_order, plannedName: r.name, startedAtISO: toISO(), routineId: r.id })]);
-      setRoutineExercises(ex ?? []); setWorkoutId(wId); setShowAddExercise(false); setRefreshToken((x) => x + 1); setCurrentRoutine(r);
+      setRoutineExercises(ex ?? []); setWorkoutId(wId); setRefreshToken((x) => x + 1); setCurrentRoutine(r);
     } catch (e) {
       setRoutineExercises([]); setCurrentRoutine(r);
     }
@@ -228,7 +225,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
-  // Single back handler — refs ensure synchronous checks
+  // Back handler — re-registers when sheets open/close to stay on top of LIFO stack
+  const [backKey, setBackKey] = React.useState(0);
   React.useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (addSheetOpenRef.current) { closeAddSheet(); return true; }
@@ -239,7 +237,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       return false;
     });
     return () => sub.remove();
-  }, [currentRoutine, onBack, confirmAction]);
+  }, [currentRoutine, onBack, confirmAction, backKey]);
 
   if (loading) return <View style={{ flex: 1, backgroundColor: BRAND.bg }} />;
 
@@ -300,9 +298,10 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const addSnapPoints = React.useMemo(() => [kbOpen ? "86%" : "57%"], [kbOpen]);
 
   const exSheetOpenRef = React.useRef(false);
-  function openSheetAnimated() { exSheetOpenRef.current = true; exerciseSheetRef.current?.present(); }
-  function closeSheetAnimated() { Keyboard.dismiss(); exSheetOpenRef.current = false; exerciseSheetRef.current?.dismiss(); setSelectedExercise(null); setEditingExName(false); setLogSaved(false); }
   const addSheetOpenRef = React.useRef(false);
+
+  function openSheetAnimated() { exSheetOpenRef.current = true; exerciseSheetRef.current?.present(); }
+  function closeSheetAnimated() { Keyboard.dismiss(); exSheetOpenRef.current = false; exerciseSheetRef.current?.dismiss(); }
   function openAddSheet() { addSheetOpenRef.current = true; addSheetRef.current?.present(); }
   function closeAddSheet() { Keyboard.dismiss(); addSheetOpenRef.current = false; addSheetRef.current?.dismiss(); }
 
@@ -324,7 +323,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       handleIndicatorStyle={{ backgroundColor: BRAND.border, width: 36 }}
       handleStyle={{ paddingVertical: 12 }}
       backgroundStyle={{ backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
-      onClose={() => { exSheetOpenRef.current = false; setSelectedExercise(null); setEditingExName(false); setLogSaved(false); }}
+      onClose={() => { exSheetOpenRef.current = false; setSelectedExercise(null); setEditingExName(false); setBackKey((k) => k + 1); }}
     >
       <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
         {selectedExercise && (
@@ -332,7 +331,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
             {/* Name */}
             {editingExName ? (
               <RNTextInput value={exNameDraft} onChangeText={(t) => setExNameDraft(t.slice(0, 30))} autoFocus onSubmitEditing={saveExName} onBlur={saveExName}
-                cursorColor={BRAND.accent}                style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", padding: 0, margin: 0, marginBottom: S * 1.5 }} />
+                cursorColor={BRAND.accent} selectionColor="transparent"
+                style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", padding: 0, margin: 0, marginBottom: S * 1.5 }} />
             ) : (
               <Pressable disabled={modalTab !== "edit"} onPress={() => { setExNameDraft(selectedExercise.exercise_name); setEditingExName(true); }}>
                 <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }} numberOfLines={1}>{selectedExercise.exercise_name}</Text>
@@ -400,7 +400,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
             {/* Action button */}
             {modalTab === "log" && (
               <View style={{ flexDirection: "row", marginBottom: 10 }}>
-                <Pill label={logSaved ? "SAVED" : "LOG"} active onPress={onSaveLog} uppercase />
+                <Pill label="LOG" active onPress={onSaveLog} uppercase />
               </View>
             )}
             {modalTab === "edit" && (
@@ -449,7 +449,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       handleIndicatorStyle={{ backgroundColor: BRAND.border, width: 36 }}
       handleStyle={{ paddingVertical: 12 }}
       backgroundStyle={{ backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
-      onDismiss={() => { addSheetOpenRef.current = false; }}
+      onDismiss={() => { addSheetOpenRef.current = false; setBackKey((k) => k + 1); }}
     >
       <BottomSheetView style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
         <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }}>New Exercise</Text>
@@ -480,7 +480,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
         <View style={{ paddingTop: insets.top + S, paddingBottom: S * 0.75, paddingHorizontal: S }}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", flex: 1 }}>Workout Routine</Text>
-            <IconButton icon="calendar-month-outline" size={20} iconColor={BRAND.textSecondary} style={{ margin: 0 }} />
+            <IconButton icon="weight-lifter" size={20} iconColor={BRAND.accent} style={{ margin: 0 }} />
           </View>
         </View>
         <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: BRAND.border }} />
@@ -489,8 +489,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
           onDragEnd={({ data: d }) => handleRoutineReorder(d)} containerStyle={{ flex: 1 }}
           contentContainerStyle={{ padding: S, flexGrow: 1 }} showsVerticalScrollIndicator={false} />
         <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
-          <Pressable onPress={() => setShowAddRoutine(true)} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.border, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
-            <Text style={{ color: BRAND.textSecondary, fontSize: 14, fontWeight: "500" }}>+ Add Routine</Text>
+          <Pressable onPress={() => setShowAddRoutine(true)} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
+            <Text style={{ color: BRAND.accent, fontSize: 14, fontWeight: "500" }}>+ Add Routine</Text>
           </Pressable>
         </View>
 
@@ -503,6 +503,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
               <View style={{ width: "82%", maxWidth: 320, backgroundColor: BRAND.surface, borderRadius: 20, padding: S * 1.25 }}>
                 <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", marginBottom: S }}>New Routine</Text>
                 <TextInput ref={routineNameRef} mode="outlined" placeholder="Routine name" value={newRoutineName} onChangeText={setNewRoutineName} onSubmitEditing={handleCreateRoutine}
+                  cursorColor={BRAND.accent} selectionColor="transparent"
                   style={{ height: 44, backgroundColor: "transparent" }} contentStyle={{ height: 44 }} textColor={BRAND.text}
                   outlineStyle={{ borderRadius: 10, borderWidth: 1, borderColor: BRAND.border }} placeholderTextColor={BRAND.textMuted} />
                 <Pressable onPress={handleCreateRoutine} disabled={!newRoutineName.trim()}
@@ -528,7 +529,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           {editingHeaderName ? (
             <RNTextInput value={headerNameDraft} onChangeText={(t) => setHeaderNameDraft(t.slice(0, 40))} autoFocus onSubmitEditing={saveHeaderName} onBlur={saveHeaderName}
-              cursorColor={BRAND.accent}              style={{ flex: 1, color: BRAND.text, fontSize: 18, fontWeight: "700", padding: 0, margin: 0 }} />
+              cursorColor={BRAND.accent} selectionColor="transparent"
+              style={{ flex: 1, color: BRAND.text, fontSize: 18, fontWeight: "700", padding: 0, margin: 0 }} />
           ) : (
             <Pressable style={{ flex: 1 }} onPress={() => { setHeaderNameDraft(currentRoutine.name); setEditingHeaderName(true); }}>
               <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700" }} numberOfLines={1}>{currentRoutine.name}</Text>
@@ -544,8 +546,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
         contentContainerStyle={{ padding: S }} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled" />
 
       <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
-        <Pressable onPress={openAddSheet} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.border, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
-          <Text style={{ color: BRAND.textSecondary, fontSize: 14, fontWeight: "500" }}>+ Add Exercise</Text>
+        <Pressable onPress={openAddSheet} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
+          <Text style={{ color: BRAND.accent, fontSize: 14, fontWeight: "500" }}>+ Add Exercise</Text>
         </Pressable>
       </View>
 
