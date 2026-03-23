@@ -295,10 +295,11 @@ export async function deleteExerciseSession({ exerciseName, dateISO }) {
 // --- Nutrition (standalone calorie/macros log) ---
 export async function addNutritionLog({ date, calories = 0, protein = 0, carbs = 0, fat = 0, foodName = "" }) {
   const db = await getDb();
-  await db.runAsync(
+  const res = await db.runAsync(
     `INSERT INTO nutrition_logs (date, calories, protein, carbs, fat, food_name) VALUES (?, ?, ?, ?, ?, ?);`,
     [date, Number(calories) || 0, Number(protein) || 0, Number(carbs) || 0, Number(fat) || 0, String(foodName || "").trim()],
   );
+  return res.lastInsertRowId;
 }
 
 export async function getNutritionLogsForDate(date) {
@@ -368,14 +369,14 @@ export async function setNutritionQuota({ calories, protein, carbs, fat }) {
     `INSERT INTO nutrition_quota (id, calories, protein, carbs, fat) VALUES (1, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET calories = ?, protein = ?, carbs = ?, fat = ?;`,
     [
-      Number(calories) ?? 2500,
-      Number(protein) ?? 150,
-      Number(carbs) ?? 300,
-      Number(fat) ?? 80,
-      Number(calories) ?? 2500,
-      Number(protein) ?? 150,
-      Number(carbs) ?? 300,
-      Number(fat) ?? 80,
+      Number(calories) || 2500,
+      Number(protein) || 150,
+      Number(carbs) || 300,
+      Number(fat) || 80,
+      Number(calories) || 2500,
+      Number(protein) || 150,
+      Number(carbs) || 300,
+      Number(fat) || 80,
     ],
   );
 }
@@ -383,10 +384,11 @@ export async function setNutritionQuota({ calories, protein, carbs, fat }) {
 // --- Saved Foods ---
 export async function addSavedFood({ name, calories = 0, protein = 0, carbs = 0, fat = 0, servingGrams = 100 }) {
   const db = await getDb();
-  await db.runAsync(
+  const res = await db.runAsync(
     `INSERT INTO saved_foods (name, calories, protein, carbs, fat, serving_grams) VALUES (?, ?, ?, ?, ?, ?);`,
     [String(name).trim(), Number(calories) || 0, Number(protein) || 0, Number(carbs) || 0, Number(fat) || 0, Number(servingGrams) || 100],
   );
+  return res.lastInsertRowId;
 }
 
 export async function getSavedFoods() {

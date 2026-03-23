@@ -34,7 +34,10 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const [currentRoutine, setCurrentRoutine] = React.useState(null);
   const [routineExercises, setRoutineExercises] = React.useState([]);
   const [workoutId, setWorkoutId] = React.useState(null);
-  const [refreshToken, setRefreshToken] = React.useState(0);
+  const [sessionsCache, setSessionsCache] = React.useState({});
+  const sessionsCacheRef = React.useRef({});
+  sessionsCacheRef.current = sessionsCache;
+  const modalOpenCountRef = React.useRef(0);
   const insets = useSafeAreaInsets();
 
   const [showAddRoutine, setShowAddRoutine] = React.useState(false);
@@ -52,6 +55,9 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const [exNameDraft, setExNameDraft] = React.useState("");
   const routineNameRef = React.useRef(null);
   const editSubmitRef = React.useRef(null);
+  const openDayRef = React.useRef(null);
+  const openExerciseModalRef = React.useRef(null);
+  const pendingPresentRef = React.useRef(false);
 
   const loadRoutines = React.useCallback(async () => setRoutines(await getRoutines()), []);
   const loadRoutineExercises = React.useCallback(async (id) => setRoutineExercises(await getRoutineExercises(id)), []);
@@ -64,16 +70,11 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   }, [loadRoutines, dataReady, preloadedRoutines]);
 
   /* ── Exercise modal ── */
-  const refreshModal = React.useCallback(async (n) => {
-    setModalLoading(true);
-    try { setModalHistory(await getExerciseEntriesGrouped({ exerciseName: n, limit: 500 })); } finally { setModalLoading(false); }
-  }, []);
-
   async function openExerciseModal(re) {
+    modalOpenCountRef.current += 1;
     setModalTab("log"); setEditingExName(false);
     const isSec = re.unit_type === "sec";
     const n = re.num_sets ?? 2, sch = { min: re.min_val ?? (isSec ? 30 : 6), max: re.max_val ?? (isSec ? 120 : 12) };
-    // Build weight values to snap weights to valid positions
     const wMin = re.weight_min ?? 0, wMax = re.weight_max ?? 100, wStep = re.weight_step ?? 2.5;
     const wVals = [];
     for (let v = wMin; v <= wMax; v = Math.round((v + wStep) * 100) / 100) wVals.push(v);
@@ -84,24 +85,22 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       for (const v of wVals) { if (Math.abs(v - num) < Math.abs(closest - num)) closest = v; }
       return String(closest);
     };
-    // Load data FIRST so wheels mount with correct values
-    try {
-      const [last, hist] = await Promise.all([getLastExerciseSets({ exerciseName: re.exercise_name }), getExerciseEntriesGrouped({ exerciseName: re.exercise_name, limit: 500 })]);
-      setModalHistory(hist ?? []);
-      const s = [];
-      for (let i = 0; i < n; i++) {
-        const p = last?.sets?.[i];
-        const w = p?.weight != null ? snapWeight(p.weight) : String(wMin);
-        s.push({ weight: w, reps: p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min });
-      }
-      setSets(s);
-    } catch (e) {
-      const s = [];
-      for (let i = 0; i < n; i++) s.push({ weight: String(wMin), reps: sch.min });
-      setSets(s);
+    // Use cached data for sets — opens instantly
+    const last = sessionsCacheRef.current[re.exercise_name];
+    const s = [];
+    for (let i = 0; i < n; i++) {
+      const p = last?.sets?.[i];
+      const w = p?.weight != null ? snapWeight(p.weight) : String(wMin);
+      s.push({ weight: w, reps: p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min });
     }
+    setSets(s);
     setSelectedExercise(re);
-    openSheetAnimated();
+    pendingPresentRef.current = true;
+    // Fetch history in background for the History tab
+    setModalLoading(true);
+    getExerciseEntriesGrouped({ exerciseName: re.exercise_name, limit: 500 })
+      .then(hist => { setModalHistory(hist ?? []); setModalLoading(false); })
+      .catch(() => { setModalHistory([]); setModalLoading(false); });
   }
   function closeExerciseModal() { closeSheetAnimated(); }
 
@@ -121,42 +120,46 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   function updateSet(i, f, v) { setSets((p) => p.map((s, j) => j === i ? { ...s, [f]: v } : s)); }
 
   function onSaveLog() {
-    // Ensure workoutId exists
     let wId = workoutId;
 
     const doLog = async () => {
-      if (!selectedExercise || !sets.length) return;
+      if (!selectedExercise || !sets.length) return false;
       if (wId == null && currentRoutine) {
         wId = await startWorkout({ splitIndex: currentRoutine.sort_order, plannedName: currentRoutine.name, startedAtISO: toISO(), routineId: currentRoutine.id });
         setWorkoutId(wId);
       }
-      if (wId == null) return;
+      if (wId == null) return false;
       const d = toISO();
+      const loggedSets = [];
       for (let i = 0; i < sets.length; i++) {
         const w = Number(String(sets[i].weight).replace(",", "."));
         const r = Number(sets[i].reps);
         if (!Number.isFinite(w) || w < 0) continue;
         if (!Number.isFinite(r)) continue;
-        await addLog({ workoutId: wId, exerciseName: selectedExercise.exercise_name, dateISO: d, weight: w, unit: "kg", reps: clamp(Math.trunc(r), modalScheme.min, modalScheme.max), setNumber: i + 1 });
+        const reps = clamp(Math.trunc(r), modalScheme.min, modalScheme.max);
+        await addLog({ workoutId: wId, exerciseName: selectedExercise.exercise_name, dateISO: d, weight: w, unit: "kg", reps, setNumber: i + 1 });
+        loggedSets.push({ weight: w, reps, setNumber: i + 1 });
       }
-      await refreshModal(selectedExercise.exercise_name);
-      setRefreshToken((x) => x + 1);
+      setSessionsCache(prev => ({ ...prev, [selectedExercise.exercise_name]: { date: d, sets: loggedSets } }));
+      return true;
     };
 
-    doLog().then(() => closeSheetAnimated());
+    doLog().then((saved) => { if (saved) closeSheetAnimated(); });
   }
-  async function onDeleteSession(d) {
+  async function onDeleteSession(dateISO) {
     if (!selectedExercise) return;
-    await deleteExerciseSession({ exerciseName: selectedExercise.exercise_name, dateISO: d });
-    await refreshModal(selectedExercise.exercise_name);
-    setRefreshToken((x) => x + 1);
-    // Auto-fill from the next latest log
-    const last = await getLastExerciseSets({ exerciseName: selectedExercise.exercise_name });
+    await deleteExerciseSession({ exerciseName: selectedExercise.exercise_name, dateISO });
+    // Optimistic updates — no re-fetch
+    const updatedHistory = modalHistory.filter(s => s.date !== dateISO);
+    setModalHistory(updatedHistory);
+    const nextLatest = updatedHistory.length > 0 ? updatedHistory[0] : null;
+    setSessionsCache(prev => ({ ...prev, [selectedExercise.exercise_name]: nextLatest }));
+    modalOpenCountRef.current += 1; // trigger NumberWheel re-scroll
     const n = selectedExercise.num_sets ?? 2;
     const sch = { min: selectedExercise.min_val ?? 6, max: selectedExercise.max_val ?? 12 };
-    if (last?.sets?.length) {
+    if (nextLatest?.sets?.length) {
       const s = [];
-      for (let i = 0; i < n; i++) { const p = last.sets[i]; s.push({ weight: p?.weight != null ? String(p.weight) : "0", reps: p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min }); }
+      for (let i = 0; i < n; i++) { const p = nextLatest.sets[i]; s.push({ weight: p?.weight != null ? String(p.weight) : "0", reps: p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min }); }
       setSets(s);
     } else {
       const s = [];
@@ -167,27 +170,35 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
 
   async function handleEditExercise({ name, unitType, min, max, step, numSets, weightMin, weightMax, weightStep }) {
     if (!selectedExercise) return;
-    await updateExercise({ oldName: selectedExercise.exercise_name, name, unitType, min, max, step, numSets, weightMin, weightMax, weightStep });
+    const oldName = selectedExercise.exercise_name;
+    await updateExercise({ oldName, name, unitType, min, max, step, numSets, weightMin, weightMax, weightStep });
     const u = { ...selectedExercise, exercise_name: name, unit_type: unitType, min_val: min, max_val: max, step, num_sets: numSets, weight_min: weightMin, weight_max: weightMax, weight_step: weightStep };
     setSelectedExercise(u);
     setSets((p) => { const r = []; for (let i = 0; i < numSets; i++) r.push(p[i] ?? { weight: "0", reps: min }); return r; });
     setModalTab("log");
-    if (currentRoutine) await loadRoutineExercises(currentRoutine.id); setRefreshToken((x) => x + 1);
+    if (name !== oldName) setSessionsCache(prev => { const next = { ...prev }; next[name] = next[oldName]; delete next[oldName]; return next; });
+    if (currentRoutine) await loadRoutineExercises(currentRoutine.id);
   }
 
   /* ── Routine CRUD ── */
   async function openDay(r) {
     try {
-      const [ex, wId] = await Promise.all([getRoutineExercises(r.id), startWorkout({ splitIndex: r.sort_order, plannedName: r.name, startedAtISO: toISO(), routineId: r.id })]);
-      setRoutineExercises(ex ?? []); setWorkoutId(wId); setRefreshToken((x) => x + 1); setCurrentRoutine(r);
+      const ex = await getRoutineExercises(r.id);
+      // Pre-cache last sessions for all exercises in one batch
+      const cache = {};
+      await Promise.all((ex ?? []).map(async (e) => {
+        cache[e.exercise_name] = await getLastExerciseSets({ exerciseName: e.exercise_name });
+      }));
+      setSessionsCache(cache);
+      setRoutineExercises(ex ?? []); setCurrentRoutine(r);
     } catch (e) {
       setRoutineExercises([]); setCurrentRoutine(r);
     }
   }
   function closeDay() { setCurrentRoutine(null); setWorkoutId(null); setRoutineExercises([]); setEditingHeaderName(false); }
   async function handleCreateRoutine() { const t = newRoutineName.trim(); if (!t) return; await createRoutine({ name: t }); setNewRoutineName(""); setShowAddRoutine(false); await loadRoutines(); }
-  function handleDeleteRoutine(r) { setConfirmAction({ title: "Delete Routine", message: "Are you sure?", label: "Delete", onConfirm: async () => { setConfirmAction(null); await deleteRoutine(r.id); if (currentRoutine?.id === r.id) closeDay(); await loadRoutines(); } }); }
-  async function handleAddExerciseSubmit(d) { try { await createExercise(d); } catch {} await addExerciseToRoutine({ routineId: currentRoutine.id, exerciseName: d.name }); closeAddSheet(); await loadRoutineExercises(currentRoutine.id); }
+  function handleDeleteRoutine(r) { setConfirmAction({ title: "Delete Routine", message: "Are you sure?", label: "Delete", onConfirm: async () => { setConfirmAction(null); await deleteRoutine(r.id); if (currentRoutine?.id === r.id) closeDay(); setRoutines(prev => prev.filter(item => item.id !== r.id)); } }); }
+  async function handleAddExerciseSubmit(d) { try { await createExercise(d); } catch { /* exercise may already exist */ } await addExerciseToRoutine({ routineId: currentRoutine.id, exerciseName: d.name }); closeAddSheet(); await loadRoutineExercises(currentRoutine.id); }
   function handleRemoveExercise(re) { setConfirmAction({ title: "Remove Exercise", message: "Are you sure?", label: "Remove", onConfirm: async () => { setConfirmAction(null); closeExerciseModal(); await removeExerciseFromRoutine(re.id); await loadRoutineExercises(currentRoutine.id); } }); }
   async function handleRoutineReorder(d) { setRoutines(d); reorderRoutines(d.map((r) => r.id)); }
   async function handleExerciseReorder(d) { setRoutineExercises(d); reorderRoutineExercises(d.map((r) => r.id)); }
@@ -201,9 +212,11 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const saveExName = React.useCallback(async () => {
     const t = exNameDraft.trim(); setEditingExName(false);
     if (t && t !== selectedExercise?.exercise_name) {
-      const se = selectedExercise;
-      await updateExercise({ oldName: se.exercise_name, name: t, unitType: se.unit_type, min: se.min_val, max: se.max_val, step: se.step, numSets: se.num_sets, weightMin: se.weight_min, weightMax: se.weight_max, weightStep: se.weight_step });
-      setSelectedExercise((p) => ({ ...p, exercise_name: t })); if (currentRoutine) await loadRoutineExercises(currentRoutine.id); setRefreshToken((x) => x + 1);
+      const oldName = selectedExercise.exercise_name;
+      await updateExercise({ oldName, name: t, unitType: selectedExercise.unit_type, min: selectedExercise.min_val, max: selectedExercise.max_val, step: selectedExercise.step, numSets: selectedExercise.num_sets, weightMin: selectedExercise.weight_min, weightMax: selectedExercise.weight_max, weightStep: selectedExercise.weight_step });
+      setSelectedExercise((p) => ({ ...p, exercise_name: t }));
+      setSessionsCache(prev => { const next = { ...prev }; next[t] = next[oldName]; delete next[oldName]; return next; });
+      if (currentRoutine) await loadRoutineExercises(currentRoutine.id);
     }
   }, [exNameDraft, selectedExercise, currentRoutine, loadRoutineExercises]);
 
@@ -242,13 +255,16 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   if (loading) return <View style={{ flex: 1, backgroundColor: BRAND.bg }} />;
 
   /* ── Render items ── */
+  openDayRef.current = openDay;
+  openExerciseModalRef.current = openExerciseModal;
+
   const renderRoutineItem = React.useCallback(({ item, drag }) => {
     const count = item.exercise_count ?? 0;
     return (
       <ScaleDecorator activeScale={1.02}>
         <View style={{ marginBottom: 12 }}>
           <Pressable
-            onPress={() => openDay(item)}
+            onPress={() => openDayRef.current(item)}
             onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); drag(); }}
             delayLongPress={500}
           >
@@ -265,12 +281,13 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const renderExerciseItem = React.useCallback(({ item: re, drag }) => (
     <ScaleDecorator activeScale={1.02}>
       <View style={{ marginBottom: 12 }}>
-        <ExerciseCard workoutId={workoutId} exerciseName={re.exercise_name} refreshToken={refreshToken}
+        <ExerciseCard exerciseName={re.exercise_name}
+          lastSession={sessionsCacheRef.current[re.exercise_name]}
           exerciseData={{ name: re.exercise_name, unit_type: re.unit_type, min_val: re.min_val, max_val: re.max_val, step: re.step }}
-          onPress={() => openExerciseModal(re)} onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); drag(); }} />
+          onPress={() => openExerciseModalRef.current(re)} onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); drag(); }} />
       </View>
     </ScaleDecorator>
-  ), [workoutId, refreshToken]);
+  ), []);
 
   /* ── Modals ── */
   const overlay = (visible, onClose, children) => (
@@ -302,6 +319,14 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
 
   function openSheetAnimated() { exSheetOpenRef.current = true; exerciseSheetRef.current?.present(); }
   function closeSheetAnimated() { Keyboard.dismiss(); exSheetOpenRef.current = false; exerciseSheetRef.current?.dismiss(); }
+
+  // Present exercise sheet after state commits (ensures NumberWheels render with correct data)
+  React.useEffect(() => {
+    if (pendingPresentRef.current && selectedExercise) {
+      pendingPresentRef.current = false;
+      requestAnimationFrame(() => openSheetAnimated());
+    }
+  }, [selectedExercise]);
   function openAddSheet() { addSheetOpenRef.current = true; addSheetRef.current?.present(); }
   function closeAddSheet() { Keyboard.dismiss(); addSheetOpenRef.current = false; addSheetRef.current?.dismiss(); }
 
@@ -323,7 +348,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       handleIndicatorStyle={{ backgroundColor: BRAND.border, width: 36 }}
       handleStyle={{ paddingVertical: 12 }}
       backgroundStyle={{ backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
-      onClose={() => { exSheetOpenRef.current = false; setSelectedExercise(null); setEditingExName(false); setBackKey((k) => k + 1); }}
+      onDismiss={() => { exSheetOpenRef.current = false; setSelectedExercise(null); setEditingExName(false); setBackKey((k) => k + 1); }}
     >
       <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
         {selectedExercise && (
@@ -347,9 +372,9 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
                     {sets.map((s, i) => (
                       <View key={i} style={{ marginBottom: S }}>
                         <Text style={{ color: BRAND.textSecondary, fontSize: 12, fontWeight: "600", letterSpacing: 1, marginBottom: 6 }}>SET {i + 1}</Text>
-                        <NumberWheel values={weightValues} value={Number(s.weight)} onValueChange={(v) => updateSet(i, "weight", String(v))} formatLabel={weightLabel} />
+                        <NumberWheel resetKey={`w-${modalOpenCountRef.current}-${i}`} values={weightValues} value={Number(s.weight)} onValueChange={(v) => updateSet(i, "weight", String(v))} formatLabel={weightLabel} />
                         <View style={{ height: 6 }} />
-                        <NumberWheel values={repsValues} value={s.reps} onValueChange={(v) => updateSet(i, "reps", v)} />
+                        <NumberWheel resetKey={`r-${modalOpenCountRef.current}-${i}`} values={repsValues} value={s.reps} onValueChange={(v) => updateSet(i, "reps", v)} />
                       </View>
                     ))}
                   </ScrollView>
@@ -416,8 +441,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
                     onConfirm: async () => {
                       setConfirmAction(null);
                       for (const session of modalHistory) await deleteExerciseSession({ exerciseName: selectedExercise.exercise_name, dateISO: session.date });
-                      await refreshModal(selectedExercise.exercise_name);
-                      setRefreshToken((x) => x + 1);
+                      setModalHistory([]);
+                      setSessionsCache(prev => ({ ...prev, [selectedExercise.exercise_name]: null }));
                     },
                   });
                 }} />
@@ -487,7 +512,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
 
         <DraggableFlatList data={routines} keyExtractor={(item) => String(item.id)} renderItem={renderRoutineItem}
           onDragEnd={({ data: d }) => handleRoutineReorder(d)} containerStyle={{ flex: 1 }}
-          contentContainerStyle={{ padding: S, flexGrow: 1 }} showsVerticalScrollIndicator={false} />
+          contentContainerStyle={{ padding: S, flexGrow: 1 }} showsVerticalScrollIndicator={false} activationDistance={10} />
         <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
           <Pressable onPress={() => setShowAddRoutine(true)} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
             <Text style={{ color: BRAND.accent, fontSize: 14, fontWeight: "500" }}>+ Add Routine</Text>
@@ -542,8 +567,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: BRAND.border }} />
 
       <DraggableFlatList data={routineExercises} keyExtractor={(item) => String(item.id)} renderItem={renderExerciseItem}
-        onDragEnd={({ data: d }) => handleExerciseReorder(d)} containerStyle={{ flex: 1 }}
-        contentContainerStyle={{ padding: S }} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled" />
+        onDragEnd={({ data: d }) => handleExerciseReorder(d)} containerStyle={{ flex: 1 }} extraData={sessionsCache}
+        contentContainerStyle={{ padding: S }} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled" activationDistance={10} />
 
       <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
         <Pressable onPress={openAddSheet} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>

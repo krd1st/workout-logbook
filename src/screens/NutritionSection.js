@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AppState, BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { AppState, BackHandler, FlatList, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { IconButton, Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomSheetModal, BottomSheetModalProvider, BottomSheetBackdrop } from "@gorhom/bottom-sheet";
@@ -148,10 +148,11 @@ export function NutritionSection({ onBack }) {
     const resolved = resolveNutrition(manualCal, manualP, manualC, manualF);
     if (!resolved) return;
     const name = manualName.trim();
-    await addNutritionLog({ date: today, ...resolved, foodName: name });
+    const id = await addNutritionLog({ date: today, ...resolved, foodName: name });
     Keyboard.dismiss();
     setManualName(""); setManualCal(""); setManualP(""); setManualC(""); setManualF("");
-    await loadEntries(); await loadTotals();
+    setLogEntries(prev => [{ id, date: today, ...resolved, foodName: name }, ...prev]);
+    setTotals(prev => ({ calories: prev.calories + resolved.calories, protein: prev.protein + resolved.protein, carbs: prev.carbs + resolved.carbs, fat: prev.fat + resolved.fat }));
   }
 
   async function handleAddFromSaved() {
@@ -162,10 +163,11 @@ export function NutritionSection({ onBack }) {
     const p = Math.round(selectedSaved.protein * scale);
     const c = Math.round(selectedSaved.carbs * scale);
     const f = Math.round(selectedSaved.fat * scale);
-    await addNutritionLog({ date: today, calories: cal, protein: p, carbs: c, fat: f, foodName: selectedSaved.name });
+    const id = await addNutritionLog({ date: today, calories: cal, protein: p, carbs: c, fat: f, foodName: selectedSaved.name });
     Keyboard.dismiss();
     setSelectedSaved(null);
-    await loadEntries(); await loadTotals();
+    setLogEntries(prev => [{ id, date: today, calories: cal, protein: p, carbs: c, fat: f, foodName: selectedSaved.name }, ...prev]);
+    setTotals(prev => ({ calories: prev.calories + cal, protein: prev.protein + p, carbs: prev.carbs + c, fat: prev.fat + f }));
   }
 
   async function handleSaveTargets() {
@@ -174,20 +176,28 @@ export function NutritionSection({ onBack }) {
     await setNutritionQuota(resolved);
     Keyboard.dismiss();
     targetsSheetRef.current?.dismiss();
-    await loadQuota();
+    setQuota(resolved);
   }
 
   function handleDeleteEntry(entry) {
     setConfirmAction({
       title: "Delete Entry", message: "Remove this food log?", label: "Delete",
-      onConfirm: async () => { setConfirmAction(null); await deleteNutritionLog(entry.id); await loadEntries(); await loadTotals(); },
+      onConfirm: async () => {
+        setConfirmAction(null); await deleteNutritionLog(entry.id);
+        setLogEntries(prev => prev.filter(e => e.id !== entry.id));
+        setTotals(prev => ({ calories: prev.calories - (entry.calories || 0), protein: prev.protein - (entry.protein || 0), carbs: prev.carbs - (entry.carbs || 0), fat: prev.fat - (entry.fat || 0) }));
+      },
     });
   }
 
   function handleDeleteSaved(food) {
     setConfirmAction({
       title: "Delete Saved Food", message: `Remove "${food.name}" from saved?`, label: "Delete",
-      onConfirm: async () => { setConfirmAction(null); await deleteSavedFood(food.id); await loadSaved(); },
+      onConfirm: async () => {
+        setConfirmAction(null); await deleteSavedFood(food.id);
+        setSavedFoodsList(prev => prev.filter(f => f.id !== food.id));
+        if (selectedSaved?.id === food.id) setSelectedSaved(null);
+      },
     });
   }
 
@@ -261,24 +271,27 @@ export function NutritionSection({ onBack }) {
       </Pressable>
 
       {/* ── Today's Log ── */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: S, paddingBottom: S }} showsVerticalScrollIndicator={false} bounces={false}>
-        {logEntries.length === 0 ? (
-          <Text style={{ color: BRAND.textMuted, fontSize: 13 }}>No entries yet</Text>
-        ) : (
-          logEntries.map((entry) => (
-            <Pressable key={entry.id} onPress={() => handleDeleteEntry(entry)} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
-              <View style={{ backgroundColor: BRAND.surface, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 16, marginBottom: 10 }}>
-                <Text style={{ color: BRAND.text, fontSize: 15, fontWeight: "500" }} numberOfLines={1}>
-                  {entry.foodName || "New Entry"}
-                </Text>
-                <Text style={{ color: BRAND.textMuted, fontSize: 12, marginTop: 4 }}>
-                  {Math.round(entry.calories)} cal · {Math.round(entry.protein)}P · {Math.round(entry.carbs)}C · {Math.round(entry.fat)}F
-                </Text>
-              </View>
-            </Pressable>
-          ))
+      <FlatList
+        data={logEntries}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={({ item: entry }) => (
+          <Pressable onPress={() => handleDeleteEntry(entry)} style={({ pressed }) => ({ opacity: pressed ? 0.8 : 1 })}>
+            <View style={{ backgroundColor: BRAND.surface, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 16, marginBottom: 10 }}>
+              <Text style={{ color: BRAND.text, fontSize: 15, fontWeight: "500" }} numberOfLines={1}>
+                {entry.foodName || "New Entry"}
+              </Text>
+              <Text style={{ color: BRAND.textMuted, fontSize: 12, marginTop: 4 }}>
+                {Math.round(entry.calories)} cal · {Math.round(entry.protein)}P · {Math.round(entry.carbs)}C · {Math.round(entry.fat)}F
+              </Text>
+            </View>
+          </Pressable>
         )}
-      </ScrollView>
+        ListEmptyComponent={<Text style={{ color: BRAND.textMuted, fontSize: 13 }}>No entries yet</Text>}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: S, paddingBottom: S }}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      />
 
       {/* ── Add Food Button ── */}
       <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
@@ -357,8 +370,9 @@ export function NutritionSection({ onBack }) {
                 const n = manualName.trim(); if (!n) return;
                 const resolved = resolveNutrition(manualCal, manualP, manualC, manualF);
                 if (!resolved) return;
-                await addSavedFood({ name: n, ...resolved, servingGrams: 100 });
-                await loadSaved(); Keyboard.dismiss();
+                const savedId = await addSavedFood({ name: n, ...resolved, servingGrams: 100 });
+                setSavedFoodsList(prev => [{ id: savedId, name: n, ...resolved, servingGrams: 100 }, ...prev]);
+                Keyboard.dismiss();
                 setManualName(""); setManualCal(""); setManualP(""); setManualC(""); setManualF("");
               }} uppercase />
             </>
