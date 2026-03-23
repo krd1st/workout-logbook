@@ -1,8 +1,8 @@
 import * as React from "react";
-import { AppState, BackHandler, Keyboard, Modal, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
+import { AppState, BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View } from "react-native";
 import { ActivityIndicator, IconButton, Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BottomSheetModal, BottomSheetModalProvider, BottomSheetBackdrop, BottomSheetView } from "@gorhom/bottom-sheet";
+import { BottomSheetModal, BottomSheetModalProvider, BottomSheetBackdrop, BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { BRAND } from "../constants/colors";
 import { Pill } from "../components/Pill";
 import {
@@ -41,7 +41,7 @@ function MacroInput({ label, value, onChangeText, kb = "number-pad" }) {
     <View style={{ flex: 1, marginBottom: 12 }}>
       <Text style={{ color: BRAND.textSecondary, fontSize: 11, marginBottom: 4 }}>{label}</Text>
       <RNTextInput value={value} onChangeText={onChangeText} keyboardType={kb} placeholderTextColor={BRAND.textMuted}
-        cursorColor={BRAND.accent} selectionColor={BRAND.accent}
+        cursorColor={BRAND.accent} selectionColor="transparent"
         style={{ height: 44, backgroundColor: BRAND.surfaceHigh, borderRadius: 12, paddingHorizontal: 14, color: BRAND.text, fontSize: 15 }} />
     </View>
   );
@@ -59,6 +59,9 @@ export function NutritionSection({ onBack }) {
 
   // Add food sheet state
   const addSheetRef = React.useRef(null);
+  const [kbOpen, setKbOpen] = React.useState(false);
+  const addSnapPoints = React.useMemo(() => [kbOpen ? "83%" : "57%"], [kbOpen]);
+  const targetSnapPoints = React.useMemo(() => [kbOpen ? "92%" : "57%"], [kbOpen]);
   const [addMode, setAddMode] = React.useState("manual");
   const [manualName, setManualName] = React.useState("");
   const [manualCal, setManualCal] = React.useState("");
@@ -99,6 +102,15 @@ export function NutritionSection({ onBack }) {
     const interval = setInterval(check, 60000);
     return () => { sub.remove(); clearInterval(interval); };
   }, [today]);
+
+  // Keyboard → change snap point
+  React.useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setKbOpen(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKbOpen(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
 
   // Back handler
   React.useEffect(() => {
@@ -274,7 +286,7 @@ export function NutritionSection({ onBack }) {
       </View>
 
       {/* ── Add Food Sheet ── */}
-      <BottomSheetModal ref={addSheetRef} snapPoints={["57%"]} {...sheetConfig} onDismiss={() => setAddSheetOpen(false)}>
+      <BottomSheetModal ref={addSheetRef} snapPoints={addSnapPoints} {...sheetConfig} onDismiss={() => setAddSheetOpen(false)}>
         <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
           <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S }}>Add Food</Text>
 
@@ -285,7 +297,7 @@ export function NutritionSection({ onBack }) {
           </View>
 
           {addMode === "manual" ? (
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false}>
+            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false} contentContainerStyle={{ paddingBottom: 200 }}>
               <MacroInput label="Food name" value={manualName} onChangeText={setManualName} kb="default" />
               <View style={{ flexDirection: "row", gap: 10 }}>
                 <MacroInput label="Calories" value={manualCal} onChangeText={setManualCal} />
@@ -319,7 +331,7 @@ export function NutritionSection({ onBack }) {
                       {selectedSaved?.id === food.id && (
                         <View style={{ flexDirection: "row", alignItems: "center", marginTop: 12, gap: 10 }}>
                           <RNTextInput value={gramAmount} onChangeText={setGramAmount} keyboardType="decimal-pad"
-                            cursorColor={BRAND.accent} selectionColor={BRAND.accent}
+                            cursorColor={BRAND.accent} selectionColor="transparent"
                             style={{ flex: 1, height: 44, backgroundColor: BRAND.bg, borderRadius: 12, paddingHorizontal: 14, color: BRAND.text, fontSize: 15 }} />
                           <Text style={{ color: BRAND.textSecondary, fontSize: 13 }}>grams</Text>
                         </View>
@@ -360,10 +372,10 @@ export function NutritionSection({ onBack }) {
       </BottomSheetModal>
 
       {/* ── Targets Sheet ── */}
-      <BottomSheetModal ref={targetsSheetRef} snapPoints={["57%"]} {...sheetConfig} onDismiss={() => setTargetsSheetOpen(false)}>
+      <BottomSheetModal ref={targetsSheetRef} snapPoints={targetSnapPoints} {...sheetConfig} onDismiss={() => setTargetsSheetOpen(false)}>
         <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
           <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }}>Daily Targets</Text>
-          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false}>
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false} contentContainerStyle={{ paddingBottom: 200 }}>
             <MacroInput label="Calories" value={targetCal} onChangeText={setTargetCal} />
             <MacroInput label="Protein" value={targetP} onChangeText={setTargetP} />
             <MacroInput label="Carbs" value={targetC} onChangeText={setTargetC} />

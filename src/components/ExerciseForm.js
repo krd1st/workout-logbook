@@ -117,10 +117,10 @@ export function ExerciseForm({
   if (pinButton) {
     return (
       <View style={{ flex: 1, justifyContent: "space-between" }}>
-        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false}>
+        <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false}>
           {fields}
         </ScrollView>
-        <View style={{ marginTop: 20 }}>{btn}</View>
+        <View style={{ marginTop: 34 }}>{btn}</View>
       </View>
     );
   }

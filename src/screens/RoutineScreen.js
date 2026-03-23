@@ -192,8 +192,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   function handleDeleteRoutine(r) { setConfirmAction({ title: "Delete Routine", message: "Are you sure?", label: "Delete", onConfirm: async () => { setConfirmAction(null); await deleteRoutine(r.id); if (currentRoutine?.id === r.id) closeDay(); await loadRoutines(); } }); }
   async function handleAddExerciseSubmit(d) { try { await createExercise(d); } catch {} await addExerciseToRoutine({ routineId: currentRoutine.id, exerciseName: d.name }); closeAddSheet(); await loadRoutineExercises(currentRoutine.id); }
   function handleRemoveExercise(re) { setConfirmAction({ title: "Remove Exercise", message: "Are you sure?", label: "Remove", onConfirm: async () => { setConfirmAction(null); closeExerciseModal(); await removeExerciseFromRoutine(re.id); await loadRoutineExercises(currentRoutine.id); } }); }
-  async function handleRoutineReorder(d) { requestAnimationFrame(() => setRoutines(d)); await reorderRoutines(d.map((r) => r.id)); }
-  async function handleExerciseReorder(d) { requestAnimationFrame(() => setRoutineExercises(d)); await reorderRoutineExercises(d.map((r) => r.id)); }
+  async function handleRoutineReorder(d) { setRoutines(d); reorderRoutines(d.map((r) => r.id)); }
+  async function handleExerciseReorder(d) { setRoutineExercises(d); reorderRoutineExercises(d.map((r) => r.id)); }
 
   const saveHeaderName = React.useCallback(async () => {
     const t = headerNameDraft.trim();
@@ -219,17 +219,25 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
     return () => sub.remove();
   }, [editingHeaderName, editingExName, saveHeaderName, saveExName]);
 
+  // Keyboard → change snap point
+  React.useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, () => setKbOpen(true));
+    const hideSub = Keyboard.addListener(hideEvent, () => setKbOpen(false));
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, []);
+
   React.useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (confirmAction) { setConfirmAction(null); return true; }
-      if (selectedExercise) { handleExerciseModalBack(); return true; }
-      if (showAddExercise) { setShowAddExercise(false); return true; }
+      if (selectedExercise) { closeSheetAnimated(); return true; }
       if (currentRoutine) { closeDay(); return true; }
       if (onBack) { onBack(); return true; }
       return false;
     });
     return () => sub.remove();
-  }, [currentRoutine, onBack, showAddExercise, confirmAction, selectedExercise, handleExerciseModalBack]);
+  }, [currentRoutine, onBack, confirmAction, selectedExercise]);
 
   if (loading) return <View style={{ flex: 1, backgroundColor: BRAND.bg }} />;
 
@@ -285,8 +293,9 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   /* ── Bottom sheets (gorhom) ── */
   const exerciseSheetRef = React.useRef(null);
   const addSheetRef = React.useRef(null);
-  const exerciseSnapPoints = React.useMemo(() => ["57%"], []);
-  const addSnapPoints = React.useMemo(() => ["57%"], []);
+  const [kbOpen, setKbOpen] = React.useState(false);
+  const exerciseSnapPoints = React.useMemo(() => [kbOpen ? "70%" : "57%"], [kbOpen]);
+  const addSnapPoints = React.useMemo(() => [kbOpen ? "86%" : "57%"], [kbOpen]);
 
   function openSheetAnimated() { exerciseSheetRef.current?.present(); }
   function closeSheetAnimated() { Keyboard.dismiss(); exerciseSheetRef.current?.dismiss(); setSelectedExercise(null); setEditingExName(false); setLogSaved(false); }
@@ -319,8 +328,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
             {/* Name */}
             {editingExName ? (
               <RNTextInput value={exNameDraft} onChangeText={(t) => setExNameDraft(t.slice(0, 30))} autoFocus onSubmitEditing={saveExName} onBlur={saveExName}
-                cursorColor={BRAND.accent} selectionColor={BRAND.accent}
-                style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", padding: 0, margin: 0, marginBottom: S * 1.5 }} />
+                cursorColor={BRAND.accent}                style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", padding: 0, margin: 0, marginBottom: S * 1.5 }} />
             ) : (
               <Pressable disabled={modalTab !== "edit"} onPress={() => { setExNameDraft(selectedExercise.exercise_name); setEditingExName(true); }}>
                 <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }} numberOfLines={1}>{selectedExercise.exercise_name}</Text>
@@ -515,8 +523,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           {editingHeaderName ? (
             <RNTextInput value={headerNameDraft} onChangeText={(t) => setHeaderNameDraft(t.slice(0, 40))} autoFocus onSubmitEditing={saveHeaderName} onBlur={saveHeaderName}
-              cursorColor={BRAND.accent} selectionColor={BRAND.accent}
-              style={{ flex: 1, color: BRAND.text, fontSize: 18, fontWeight: "700", padding: 0, margin: 0 }} />
+              cursorColor={BRAND.accent}              style={{ flex: 1, color: BRAND.text, fontSize: 18, fontWeight: "700", padding: 0, margin: 0 }} />
           ) : (
             <Pressable style={{ flex: 1 }} onPress={() => { setHeaderNameDraft(currentRoutine.name); setEditingHeaderName(true); }}>
               <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700" }} numberOfLines={1}>{currentRoutine.name}</Text>
