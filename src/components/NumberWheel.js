@@ -1,23 +1,52 @@
 import * as React from "react";
-import { View } from "react-native";
-import { HorizontalPicker } from "expo-horizontal-picker";
+import { FlatList, View } from "react-native";
+import Animated, {
+  useAnimatedScrollHandler,
+  useSharedValue,
+  useAnimatedStyle,
+  interpolate,
+  Extrapolation,
+} from "react-native-reanimated";
 import { BRAND } from "../constants/colors";
 
-export const NumberWheel = React.memo(function NumberWheel({ values, value, onValueChange, formatLabel }) {
-  const fmt = formatLabel || ((v) => String(v));
+const VISIBLE_COUNT = 7;
+const HEIGHT = 40;
+const PAD = Math.floor(VISIBLE_COUNT / 2); // 3
 
-  const items = React.useMemo(() =>
-    values.map((v) => ({ label: fmt(v), value: v })),
-  [values, fmt]);
+const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
+
+const PickerItem = React.memo(function PickerItem({ label, width, scrollX, itemOffset }) {
+  const animStyle = useAnimatedStyle(() => {
+    const dist = Math.abs(scrollX.value - itemOffset);
+    const maxDist = width * 2;
+    return {
+      opacity: interpolate(dist, [0, maxDist], [1, 0.2], Extrapolation.CLAMP),
+      transform: [{ scale: interpolate(dist, [0, maxDist], [1.1, 0.85], Extrapolation.CLAMP) }],
+    };
+  });
+
+  if (!label) return <View style={{ width, height: HEIGHT }} />;
+
+  return (
+    <View style={{ width, height: HEIGHT, justifyContent: "center", alignItems: "center" }}>
+      <Animated.Text style={[{ fontSize: 14, fontWeight: "500", color: BRAND.text }, animStyle]}>
+        {label}
+      </Animated.Text>
+    </View>
+  );
+});
+
+export const NumberWheel = React.memo(function NumberWheel({ values, value, onValueChange, formatLabel, resetKey }) {
+  const fmt = formatLabel || ((v) => String(v));
+  const flatListRef = React.useRef(null);
+  const [itemWidth, setItemWidth] = React.useState(0);
+  const scrollX = useSharedValue(0);
 
   const currentIndex = React.useMemo(() => {
     if (!values.length) return 0;
-    // Exact match first
     const idx = values.indexOf(value);
     if (idx >= 0) return idx;
-    // Closest match (handles floating point or step mismatch)
-    let closest = 0;
-    let minDist = Math.abs(values[0] - value);
+    let closest = 0, minDist = Math.abs(values[0] - value);
     for (let i = 1; i < values.length; i++) {
       const d = Math.abs(values[i] - value);
       if (d < minDist) { minDist = d; closest = i; }
@@ -25,32 +54,72 @@ export const NumberWheel = React.memo(function NumberWheel({ values, value, onVa
     return closest;
   }, [values, value]);
 
-  // Sync parent state with what the wheel actually displays on mount
-  React.useEffect(() => {
-    const displayed = values[currentIndex];
-    if (displayed !== value) onValueChange(displayed);
-  }, []); // only on mount
+  const paddedItems = React.useMemo(() => {
+    const formatted = values.map((v, i) => ({ key: `v${i}`, label: fmt(v) }));
+    const before = Array.from({ length: PAD }, (_, i) => ({ key: `b${i}`, label: "" }));
+    const after = Array.from({ length: PAD }, (_, i) => ({ key: `a${i}`, label: "" }));
+    return [...before, ...formatted, ...after];
+  }, [values, fmt]);
 
-  const handleChange = React.useCallback((selected, index) => {
-    onValueChange(values[index]);
-  }, [onValueChange, values]);
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (e) => { scrollX.value = e.contentOffset.x; },
+  });
+
+  const onLayout = React.useCallback((e) => {
+    setItemWidth(e.nativeEvent.layout.width / VISIBLE_COUNT);
+  }, []);
+
+  // Scroll to correct position after layout and whenever resetKey changes
+  React.useEffect(() => {
+    if (itemWidth > 0) {
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToOffset({ offset: currentIndex * itemWidth, animated: false });
+      });
+    }
+  }, [itemWidth, resetKey]);
+
+  const onScrollEnd = React.useCallback((e) => {
+    if (!itemWidth) return;
+    const idx = Math.round(e.nativeEvent.contentOffset.x / itemWidth);
+    const clamped = Math.max(0, Math.min(idx, values.length - 1));
+    onValueChange(values[clamped]);
+  }, [itemWidth, values, onValueChange]);
+
+  const snapOffsets = React.useMemo(() =>
+    itemWidth > 0 ? values.map((_, i) => i * itemWidth) : undefined,
+  [itemWidth, values.length]);
+
+  const getItemLayout = React.useCallback((_, index) => ({
+    length: itemWidth, offset: itemWidth * index, index,
+  }), [itemWidth]);
+
+  const renderItem = React.useCallback(({ item, index }) => (
+    <PickerItem label={item.label} width={itemWidth} scrollX={scrollX} itemOffset={(index - PAD) * itemWidth} />
+  ), [itemWidth, scrollX]);
 
   return (
-    <View style={{ height: 40, overflow: "hidden", backgroundColor: BRAND.surfaceHigh, borderRadius: 10, position: "relative" }}>
-      <HorizontalPicker
-        items={items}
-        initialScrollIndex={currentIndex}
-        onChange={handleChange}
-        visibleItemCount={7}
-        focusedOpacityStyle={1}
-        unfocusedOpacityStyle={0.2}
-        focusedTransformStyle={[{ scale: 1.1 }]}
-        unfocusedTransformStyle={[{ scale: 0.85 }]}
-        pickerItemStyle={{ height: 40, justifyContent: "center", alignItems: "center" }}
-        pickerItemTextStyle={{ fontSize: 14, fontWeight: "500", color: BRAND.text }}
-        style={{ height: 40 }}
-        decelerationRate="fast"
-      />
+    <View
+      style={{ height: HEIGHT, overflow: "hidden", backgroundColor: BRAND.surfaceHigh, borderRadius: 10, position: "relative" }}
+      onLayout={onLayout}
+    >
+      {itemWidth > 0 && (
+        <AnimatedFlatList
+          ref={flatListRef}
+          data={paddedItems}
+          keyExtractor={(item) => item.key}
+          renderItem={renderItem}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          snapToOffsets={snapOffsets}
+          decelerationRate="fast"
+          getItemLayout={getItemLayout}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
+          onMomentumScrollEnd={onScrollEnd}
+          overScrollMode="never"
+          bounces={false}
+        />
+      )}
       <View pointerEvents="none" style={{ position: "absolute", left: "50%", marginLeft: -0.5, top: 6, bottom: 6, width: 1, backgroundColor: BRAND.accent, opacity: 0.7, borderRadius: 1 }} />
     </View>
   );

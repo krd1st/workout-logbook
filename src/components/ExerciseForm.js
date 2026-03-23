@@ -15,13 +15,14 @@ export function ExerciseForm({
   const [weightMin, setWeightMin] = React.useState(String(initialWeightMin));
   const [weightMax, setWeightMax] = React.useState(String(initialWeightMax));
   const [weightStep, setWeightStep] = React.useState(String(initialWeightStep));
+  const [numSets, setNumSets] = React.useState(String(initialNumSets));
 
   const getFormData = () => ({
     name: name.trim(), unitType,
     min: parseInt(minVal, 10) || (unitType === "sec" ? 30 : 6),
     max: parseInt(maxVal, 10) || (unitType === "sec" ? 120 : 12),
     step: unitType === "sec" ? 5 : 1,
-    numSets: initialNumSets,
+    numSets: parseInt(numSets, 10) || 2,
     weightMin: parseFloat(weightMin) || 0,
     weightMax: parseFloat(weightMax) || 100,
     weightStep: parseFloat(weightStep) || 2.5,
@@ -33,14 +34,12 @@ export function ExerciseForm({
     onSubmit(data);
   };
 
-  // Expose submit to parent via ref — use getFormData to always read latest state
+  // Expose submit to parent via stable ref that always calls the latest handleSubmit
+  const latestSubmit = React.useRef(handleSubmit);
+  latestSubmit.current = handleSubmit;
   React.useEffect(() => {
-    if (onSubmitRef) onSubmitRef(() => {
-      const data = getFormData();
-      if (!data.name) return;
-      onSubmit(data);
-    });
-  });
+    if (onSubmitRef) onSubmitRef(() => latestSubmit.current());
+  }, [onSubmitRef]);
 
   const inputProps = (val, set, kb = "number-pad") => ({
     mode: "outlined", value: val, onChangeText: set, keyboardType: kb,
@@ -107,6 +106,14 @@ export function ExerciseForm({
           {toggle}
           <View style={{ flex: 1 }}>{fieldLabel("Min")}<TextInput {...inputProps(minVal, setMinVal)} /></View>
           <View style={{ flex: 1 }}>{fieldLabel("Max")}<TextInput {...inputProps(maxVal, setMaxVal)} /></View>
+        </View>
+      </View>
+
+      <View>
+        {sectionLabel("Sets per exercise")}
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flex: 1 }}>{fieldLabel("Sets")}<TextInput {...inputProps(numSets, setNumSets)} /></View>
+          <View style={{ flex: 2 }} />
         </View>
       </View>
 

@@ -2,18 +2,8 @@ import * as React from "react";
 import { Pressable, View } from "react-native";
 import { Text } from "react-native-paper";
 import { BRAND } from "../constants/colors";
-import { getLastExerciseSets } from "../../db/database";
 
-export function ExerciseCard({ workoutId, exerciseName, exerciseData, refreshToken, onPress, onLongPress }) {
-  const [lastSession, setLastSession] = React.useState(null);
-
-  React.useEffect(() => {
-    if (workoutId == null) return;
-    let c = false;
-    (async () => { const s = await getLastExerciseSets({ exerciseName }); if (!c) setLastSession(s); })();
-    return () => { c = true; };
-  }, [workoutId, exerciseName, refreshToken]);
-
+export const ExerciseCard = React.memo(function ExerciseCard({ exerciseName, exerciseData, lastSession, onPress, onLongPress }) {
   const lastLine = React.useMemo(() => {
     if (!lastSession?.sets?.length) return "No record";
     return lastSession.sets.map((s) => `${s.weight}kg × ${s.reps}`).join("  ·  ");
@@ -35,4 +25,4 @@ export function ExerciseCard({ workoutId, exerciseName, exerciseData, refreshTok
       </View>
     </Pressable>
   );
-}
+});
