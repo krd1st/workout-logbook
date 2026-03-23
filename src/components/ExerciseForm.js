@@ -16,21 +16,30 @@ export function ExerciseForm({
   const [weightMax, setWeightMax] = React.useState(String(initialWeightMax));
   const [weightStep, setWeightStep] = React.useState(String(initialWeightStep));
 
+  const getFormData = () => ({
+    name: name.trim(), unitType,
+    min: parseInt(minVal, 10) || (unitType === "sec" ? 30 : 6),
+    max: parseInt(maxVal, 10) || (unitType === "sec" ? 120 : 12),
+    step: unitType === "sec" ? 5 : 1,
+    numSets: initialNumSets,
+    weightMin: parseFloat(weightMin) || 0,
+    weightMax: parseFloat(weightMax) || 100,
+    weightStep: parseFloat(weightStep) || 2.5,
+  });
+
   const handleSubmit = () => {
-    const t = name.trim(); if (!t) return;
-    onSubmit({
-      name: t, unitType,
-      min: Number(minVal) || 1, max: Number(maxVal) || 12,
-      step: unitType === "sec" ? 5 : 1,
-      numSets: initialNumSets,
-      weightMin: Number(weightMin) || 0, weightMax: Number(weightMax) || 100,
-      weightStep: Number(weightStep) || 2.5,
-    });
+    const data = getFormData();
+    if (!data.name) return;
+    onSubmit(data);
   };
 
-  // Expose submit to parent via callback ref
+  // Expose submit to parent via ref — use getFormData to always read latest state
   React.useEffect(() => {
-    if (onSubmitRef) onSubmitRef(handleSubmit);
+    if (onSubmitRef) onSubmitRef(() => {
+      const data = getFormData();
+      if (!data.name) return;
+      onSubmit(data);
+    });
   });
 
   const inputProps = (val, set, kb = "number-pad") => ({

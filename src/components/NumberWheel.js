@@ -11,6 +11,7 @@ export const NumberWheel = React.memo(function NumberWheel({ values, value, onVa
   [values, fmt]);
 
   const currentIndex = React.useMemo(() => {
+    if (!values.length) return 0;
     // Exact match first
     const idx = values.indexOf(value);
     if (idx >= 0) return idx;
