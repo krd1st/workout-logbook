@@ -8,7 +8,7 @@ import { Pill } from "../components/Pill";
 import {
   addNutritionLog, addSavedFood, deleteNutritionLog, deleteSavedFood,
   getNutritionLogsForDate, getNutritionQuota, getNutritionTotalsForDate,
-  getSavedFoods, setNutritionQuota, updateNutritionLogFoodName,
+  getSavedFoods, setNutritionQuota,
 } from "../../db/database";
 
 const S = 20;

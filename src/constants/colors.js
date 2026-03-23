@@ -15,16 +15,6 @@ export const BRAND = {
   overlay: "rgba(0,0,0,0.7)",
 };
 
-export const APP_COLORS = {
-  shadow: "#000",
-  background: null,
-  surface: null,
-  outline: null,
-  outlineVariant: null,
-  error: null,
-  readyHighlight: BRAND.surfaceHigh,
-};
-
 export function getAppColors(theme) {
   return {
     background: BRAND.bg,
