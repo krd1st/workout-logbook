@@ -1,5 +1,5 @@
 import * as React from "react";
-import { FlatList, View } from "react-native";
+import { Dimensions, FlatList, View } from "react-native";
 import Animated, {
   useAnimatedScrollHandler,
   useSharedValue,
@@ -12,6 +12,8 @@ import { BRAND } from "../constants/colors";
 const VISIBLE_COUNT = 7;
 const HEIGHT = 40;
 const PAD = Math.floor(VISIBLE_COUNT / 2); // 3
+// Pre-calculate a reasonable default so we skip the empty first render
+let _cachedItemWidth = Math.floor((Dimensions.get("window").width - 40) / VISIBLE_COUNT);
 
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
@@ -39,7 +41,7 @@ const PickerItem = React.memo(function PickerItem({ label, width, scrollX, itemO
 export const NumberWheel = React.memo(function NumberWheel({ values, value, onValueChange, formatLabel, resetKey }) {
   const fmt = formatLabel || ((v) => String(v));
   const flatListRef = React.useRef(null);
-  const [itemWidth, setItemWidth] = React.useState(0);
+  const [itemWidth, setItemWidth] = React.useState(_cachedItemWidth);
   const scrollX = useSharedValue(0);
 
   const currentIndex = React.useMemo(() => {
@@ -66,7 +68,9 @@ export const NumberWheel = React.memo(function NumberWheel({ values, value, onVa
   });
 
   const onLayout = React.useCallback((e) => {
-    setItemWidth(e.nativeEvent.layout.width / VISIBLE_COUNT);
+    const w = e.nativeEvent.layout.width / VISIBLE_COUNT;
+    _cachedItemWidth = w;
+    setItemWidth(w);
   }, []);
 
   // Scroll to correct position after layout and whenever resetKey changes
@@ -109,6 +113,7 @@ export const NumberWheel = React.memo(function NumberWheel({ values, value, onVa
           keyExtractor={(item) => item.key}
           renderItem={renderItem}
           horizontal
+          initialScrollIndex={currentIndex}
           showsHorizontalScrollIndicator={false}
           snapToOffsets={snapOffsets}
           decelerationRate="fast"
@@ -118,6 +123,7 @@ export const NumberWheel = React.memo(function NumberWheel({ values, value, onVa
           onMomentumScrollEnd={onScrollEnd}
           overScrollMode="never"
           bounces={false}
+          onScrollToIndexFailed={() => {}}
         />
       )}
       <View pointerEvents="none" style={{ position: "absolute", left: "50%", marginLeft: -0.5, top: 6, bottom: 6, width: 1, backgroundColor: BRAND.accent, opacity: 0.7, borderRadius: 1 }} />
