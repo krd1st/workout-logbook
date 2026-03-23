@@ -28,6 +28,7 @@
     },
     "android": {
       "package": "com.krd1st.logbook",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#212121",
         "foregroundImage": "./assets/icon.png"
