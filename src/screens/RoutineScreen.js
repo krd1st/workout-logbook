@@ -228,16 +228,18 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
     return () => { showSub.remove(); hideSub.remove(); };
   }, []);
 
+  // Single back handler — refs ensure synchronous checks
   React.useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (addSheetOpenRef.current) { closeAddSheet(); return true; }
+      if (exSheetOpenRef.current) { closeSheetAnimated(); return true; }
       if (confirmAction) { setConfirmAction(null); return true; }
-      if (selectedExercise) { closeSheetAnimated(); return true; }
       if (currentRoutine) { closeDay(); return true; }
       if (onBack) { onBack(); return true; }
       return false;
     });
     return () => sub.remove();
-  }, [currentRoutine, onBack, confirmAction, selectedExercise]);
+  }, [currentRoutine, onBack, confirmAction]);
 
   if (loading) return <View style={{ flex: 1, backgroundColor: BRAND.bg }} />;
 
@@ -297,10 +299,12 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const exerciseSnapPoints = React.useMemo(() => [kbOpen ? "70%" : "57%"], [kbOpen]);
   const addSnapPoints = React.useMemo(() => [kbOpen ? "86%" : "57%"], [kbOpen]);
 
-  function openSheetAnimated() { exerciseSheetRef.current?.present(); }
-  function closeSheetAnimated() { Keyboard.dismiss(); exerciseSheetRef.current?.dismiss(); setSelectedExercise(null); setEditingExName(false); setLogSaved(false); }
-  function openAddSheet() { addSheetRef.current?.present(); }
-  function closeAddSheet() { Keyboard.dismiss(); addSheetRef.current?.dismiss(); }
+  const exSheetOpenRef = React.useRef(false);
+  function openSheetAnimated() { exSheetOpenRef.current = true; exerciseSheetRef.current?.present(); }
+  function closeSheetAnimated() { Keyboard.dismiss(); exSheetOpenRef.current = false; exerciseSheetRef.current?.dismiss(); setSelectedExercise(null); setEditingExName(false); setLogSaved(false); }
+  const addSheetOpenRef = React.useRef(false);
+  function openAddSheet() { addSheetOpenRef.current = true; addSheetRef.current?.present(); }
+  function closeAddSheet() { Keyboard.dismiss(); addSheetOpenRef.current = false; addSheetRef.current?.dismiss(); }
 
   const renderBackdrop = React.useCallback((props) => (
     <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} pressBehavior="close" style={[props.style, { backgroundColor: BRAND.overlay }]} />
@@ -320,7 +324,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       handleIndicatorStyle={{ backgroundColor: BRAND.border, width: 36 }}
       handleStyle={{ paddingVertical: 12 }}
       backgroundStyle={{ backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
-      onClose={() => { setSelectedExercise(null); setEditingExName(false); setLogSaved(false); }}
+      onClose={() => { exSheetOpenRef.current = false; setSelectedExercise(null); setEditingExName(false); setLogSaved(false); }}
     >
       <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
         {selectedExercise && (
@@ -445,6 +449,7 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       handleIndicatorStyle={{ backgroundColor: BRAND.border, width: 36 }}
       handleStyle={{ paddingVertical: 12 }}
       backgroundStyle={{ backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
+      onDismiss={() => { addSheetOpenRef.current = false; }}
     >
       <BottomSheetView style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
         <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }}>New Exercise</Text>
