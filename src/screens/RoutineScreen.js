@@ -281,10 +281,15 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const renderExerciseItem = React.useCallback(({ item: re, drag }) => (
     <ScaleDecorator activeScale={1.02}>
       <View style={{ marginBottom: 12 }}>
-        <ExerciseCard exerciseName={re.exercise_name}
-          lastSession={sessionsCacheRef.current[re.exercise_name]}
-          exerciseData={{ name: re.exercise_name, unit_type: re.unit_type, min_val: re.min_val, max_val: re.max_val, step: re.step }}
-          onPress={() => openExerciseModalRef.current(re)} onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); drag(); }} />
+        <Pressable
+          onPress={() => openExerciseModalRef.current(re)}
+          onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); drag(); }}
+          delayLongPress={500}
+        >
+          <ExerciseCard exerciseName={re.exercise_name}
+            lastSession={sessionsCacheRef.current[re.exercise_name]}
+            maxVal={re.max_val} />
+        </Pressable>
       </View>
     </ScaleDecorator>
   ), []);
@@ -512,7 +517,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
 
         <DraggableFlatList data={routines} keyExtractor={(item) => String(item.id)} renderItem={renderRoutineItem}
           onDragEnd={({ data: d }) => handleRoutineReorder(d)} containerStyle={{ flex: 1 }}
-          contentContainerStyle={{ padding: S, flexGrow: 1 }} showsVerticalScrollIndicator={false} activationDistance={10} />
+          contentContainerStyle={{ padding: S, flexGrow: 1 }} showsVerticalScrollIndicator={false}
+          activationDistance={10} removeClippedSubviews={false} initialNumToRender={20} />
         <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
           <Pressable onPress={() => setShowAddRoutine(true)} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
             <Text style={{ color: BRAND.accent, fontSize: 14, fontWeight: "500" }}>+ Add Routine</Text>
@@ -568,7 +574,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
 
       <DraggableFlatList data={routineExercises} keyExtractor={(item) => String(item.id)} renderItem={renderExerciseItem}
         onDragEnd={({ data: d }) => handleExerciseReorder(d)} containerStyle={{ flex: 1 }} extraData={sessionsCache}
-        contentContainerStyle={{ padding: S }} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled" activationDistance={10} />
+        contentContainerStyle={{ padding: S }} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled"
+        activationDistance={10} removeClippedSubviews={false} initialNumToRender={20} />
 
       <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
         <Pressable onPress={openAddSheet} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
