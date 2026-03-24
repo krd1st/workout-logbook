@@ -14,8 +14,7 @@ import { ExerciseCard } from "../components/ExerciseCard";
 import { ExerciseForm } from "../components/ExerciseForm";
 import { NumberWheel } from "../components/NumberWheel";
 import { Pill } from "../components/Pill";
-import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
-import * as Haptics from "expo-haptics";
+import { SortableList } from "../components/SortableList";
 import {
   initDatabase, startWorkout, getRoutines, createRoutine, updateRoutine, deleteRoutine,
   getRoutineExercises, addExerciseToRoutine, removeExerciseFromRoutine, createExercise,
@@ -200,8 +199,8 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   function handleDeleteRoutine(r) { setConfirmAction({ title: "Delete Routine", message: "Are you sure?", label: "Delete", onConfirm: async () => { setConfirmAction(null); await deleteRoutine(r.id); if (currentRoutine?.id === r.id) closeDay(); setRoutines(prev => prev.filter(item => item.id !== r.id)); } }); }
   async function handleAddExerciseSubmit(d) { try { await createExercise(d); } catch { /* exercise may already exist */ } await addExerciseToRoutine({ routineId: currentRoutine.id, exerciseName: d.name }); closeAddSheet(); await loadRoutineExercises(currentRoutine.id); }
   function handleRemoveExercise(re) { setConfirmAction({ title: "Remove Exercise", message: "Are you sure?", label: "Remove", onConfirm: async () => { setConfirmAction(null); closeExerciseModal(); await removeExerciseFromRoutine(re.id); await loadRoutineExercises(currentRoutine.id); } }); }
-  async function handleRoutineReorder(d) { setRoutines(d); reorderRoutines(d.map((r) => r.id)); }
-  async function handleExerciseReorder(d) { setRoutineExercises(d); reorderRoutineExercises(d.map((r) => r.id)); }
+  async function handleRoutineReorder(d) { reorderRoutines(d.map((r) => r.id)); }
+  async function handleExerciseReorder(d) { reorderRoutineExercises(d.map((r) => r.id)); }
 
   const saveHeaderName = React.useCallback(async () => {
     const t = headerNameDraft.trim();
@@ -258,40 +257,28 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   openDayRef.current = openDay;
   openExerciseModalRef.current = openExerciseModal;
 
-  const renderRoutineItem = React.useCallback(({ item, drag }) => {
+  const renderRoutineItem = React.useCallback(({ item }) => {
     const count = item.exercise_count ?? 0;
     return (
-      <ScaleDecorator activeScale={1.02}>
-        <View style={{ marginBottom: 12 }}>
-          <Pressable
-            onPress={() => openDayRef.current(item)}
-            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); drag(); }}
-            delayLongPress={500}
-          >
-            <View style={{ backgroundColor: BRAND.surface, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 20 }}>
-              <Text style={{ color: BRAND.text, fontSize: 16, fontWeight: "500" }} numberOfLines={1}>{item.name}</Text>
-              <Text style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>{count} exercise{count !== 1 ? "s" : ""}</Text>
-            </View>
-          </Pressable>
-        </View>
-      </ScaleDecorator>
+      <View style={{ marginBottom: 12 }}>
+        <Pressable onPress={() => openDayRef.current(item)}>
+          <View style={{ backgroundColor: BRAND.surface, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 20 }}>
+            <Text style={{ color: BRAND.text, fontSize: 16, fontWeight: "500" }} numberOfLines={1}>{item.name}</Text>
+            <Text style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>{count} exercise{count !== 1 ? "s" : ""}</Text>
+          </View>
+        </Pressable>
+      </View>
     );
   }, []);
 
-  const renderExerciseItem = React.useCallback(({ item: re, drag }) => (
-    <ScaleDecorator activeScale={1.02}>
-      <View style={{ marginBottom: 12 }}>
-        <Pressable
-          onPress={() => openExerciseModalRef.current(re)}
-          onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); drag(); }}
-          delayLongPress={500}
-        >
-          <ExerciseCard exerciseName={re.exercise_name}
-            lastSession={sessionsCacheRef.current[re.exercise_name]}
-            maxVal={re.max_val} />
-        </Pressable>
-      </View>
-    </ScaleDecorator>
+  const renderExerciseItem = React.useCallback(({ item: re }) => (
+    <View style={{ marginBottom: 12 }}>
+      <Pressable onPress={() => openExerciseModalRef.current(re)}>
+        <ExerciseCard exerciseName={re.exercise_name}
+          lastSession={sessionsCacheRef.current[re.exercise_name]}
+          maxVal={re.max_val} />
+      </Pressable>
+    </View>
   ), []);
 
   /* ── Modals ── */
@@ -515,10 +502,9 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
         </View>
         <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: BRAND.border }} />
 
-        <DraggableFlatList data={routines} keyExtractor={(item) => String(item.id)} renderItem={renderRoutineItem}
-          onDragEnd={({ data: d }) => handleRoutineReorder(d)} containerStyle={{ flex: 1 }}
-          contentContainerStyle={{ padding: S, flexGrow: 1 }} showsVerticalScrollIndicator={false}
-          activationDistance={10} removeClippedSubviews={false} initialNumToRender={20} />
+        <SortableList data={routines} keyExtractor={(item) => String(item.id)} renderItem={renderRoutineItem}
+          onReorder={handleRoutineReorder} style={{ flex: 1 }}
+          contentContainerStyle={{ padding: S }} />
         <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
           <Pressable onPress={() => setShowAddRoutine(true)} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
             <Text style={{ color: BRAND.accent, fontSize: 14, fontWeight: "500" }}>+ Add Routine</Text>
@@ -572,10 +558,9 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
       </View>
       <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: BRAND.border }} />
 
-      <DraggableFlatList data={routineExercises} keyExtractor={(item) => String(item.id)} renderItem={renderExerciseItem}
-        onDragEnd={({ data: d }) => handleExerciseReorder(d)} containerStyle={{ flex: 1 }} extraData={sessionsCache}
-        contentContainerStyle={{ padding: S }} showsVerticalScrollIndicator={false} bounces={false} keyboardShouldPersistTaps="handled"
-        activationDistance={10} removeClippedSubviews={false} initialNumToRender={20} />
+      <SortableList data={routineExercises} keyExtractor={(item) => String(item.id)} renderItem={renderExerciseItem}
+        onReorder={handleExerciseReorder} style={{ flex: 1 }}
+        contentContainerStyle={{ padding: S }} bounces={false} keyboardShouldPersistTaps="handled" />
 
       <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
         <Pressable onPress={openAddSheet} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
