@@ -1,42 +1,61 @@
 import * as React from "react";
 import {
-  BackHandler, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput as RNTextInput, View,
+  BackHandler,
+  InteractionManager,
+  Keyboard,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
-import { BottomSheetModal, BottomSheetModalProvider, BottomSheetBackdrop, BottomSheetView } from "@gorhom/bottom-sheet";
-import {
-  ActivityIndicator, IconButton, Text, TextInput,
-} from "react-native-paper";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BRAND } from "../constants/colors";
-import { clamp, formatDateEuropean, toISO } from "../utils/helpers";
-
+import { clamp, toISO } from "../utils/helpers";
 import { ExerciseCard } from "../components/ExerciseCard";
-import { ExerciseForm } from "../components/ExerciseForm";
-import { NumberWheel } from "../components/NumberWheel";
-import { Pill } from "../components/Pill";
+import { Stepper } from "../components/Stepper";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { SortableList } from "../components/SortableList";
+import { HeaderToggle } from "../components/HeaderToggle";
 import {
-  initDatabase, startWorkout, getRoutines, createRoutine, updateRoutine, deleteRoutine,
-  getRoutineExercises, addExerciseToRoutine, removeExerciseFromRoutine, createExercise,
-  reorderRoutines, reorderRoutineExercises, addLog, deleteExerciseSession,
-  getExerciseEntriesGrouped, getLastExerciseSets, updateExercise,
+  initDatabase,
+  startWorkout,
+  getRoutines,
+  createRoutine,
+  updateRoutine,
+  deleteRoutine,
+  getRoutineExercises,
+  addExerciseToRoutine,
+  removeExerciseFromRoutine,
+  reorderRoutines,
+  reorderRoutineExercises,
+  addLog,
+  getLastSetsForExerciseIds,
 } from "../../db/database";
 
-const S = 20; // spacing unit
+const S = 20;
+// Vertical offset for the LOG modal — negative shifts it up.
+// Tweak this number to taste.
+const LOG_MODAL_OFFSET = -70;
 
-/* (Add Exercise sheet is handled inline as a permanent overlay like the exercise sheet) */
-
-
-export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBack }) {
-  const [loading, setLoading] = React.useState(!dataReady || !preloadedRoutines);
-  const [routines, setRoutines] = React.useState(preloadedRoutines ?? []);
+export function RoutineScreen({
+  dataReady = true,
+  routines = [],
+  onRoutinesChange,
+  exercises = [],
+  section,
+  onSwitchSection,
+}) {
+  const [loading, setLoading] = React.useState(!dataReady);
   const [currentRoutine, setCurrentRoutine] = React.useState(null);
   const [routineExercises, setRoutineExercises] = React.useState([]);
   const [workoutId, setWorkoutId] = React.useState(null);
-  const [sessionsCache, setSessionsCache] = React.useState({});
+  const [sessionsCache, setSessionsCache] = React.useState({}); // keyed by exercise_id
   const sessionsCacheRef = React.useRef({});
   sessionsCacheRef.current = sessionsCache;
-  const modalOpenCountRef = React.useRef(0);
   const insets = useSafeAreaInsets();
 
   const [showAddRoutine, setShowAddRoutine] = React.useState(false);
@@ -44,536 +63,901 @@ export function RoutineScreen({ dataReady = true, preloadedRoutines = null, onBa
   const [editingHeaderName, setEditingHeaderName] = React.useState(false);
   const [headerNameDraft, setHeaderNameDraft] = React.useState("");
   const [confirmAction, setConfirmAction] = React.useState(null);
-
-  const [selectedExercise, setSelectedExercise] = React.useState(null);
-  const [modalTab, setModalTab] = React.useState("log");
-  const [modalLoading, setModalLoading] = React.useState(false);
-  const [modalHistory, setModalHistory] = React.useState([]);
-  const [sets, setSets] = React.useState([]);
-  const [editingExName, setEditingExName] = React.useState(false);
-  const [exNameDraft, setExNameDraft] = React.useState("");
   const routineNameRef = React.useRef(null);
-  const editSubmitRef = React.useRef(null);
-  const openDayRef = React.useRef(null);
-  const openExerciseModalRef = React.useRef(null);
-  const pendingPresentRef = React.useRef(false);
 
-  const loadRoutines = React.useCallback(async () => setRoutines(await getRoutines()), []);
-  const loadRoutineExercises = React.useCallback(async (id) => setRoutineExercises(await getRoutineExercises(id)), []);
+  const [selectedRE, setSelectedRE] = React.useState(null);
+  const [sets, setSets] = React.useState([]);
+  const [pickerOpen, setPickerOpen] = React.useState(false);
+
+  const openExerciseRef = React.useRef(null);
+
+  const refreshRoutines = React.useCallback(async () => {
+    const list = await getRoutines();
+    onRoutinesChange?.(list);
+    return list;
+  }, [onRoutinesChange]);
+
+  const loadRoutineExercises = React.useCallback(
+    async (id) => setRoutineExercises(await getRoutineExercises(id)),
+    [],
+  );
 
   React.useEffect(() => {
-    if (dataReady && preloadedRoutines) { setLoading(false); return; }
+    if (dataReady) {
+      setLoading(false);
+      return;
+    }
     let c = false;
-    (async () => { if (!dataReady) await initDatabase(); await loadRoutines(); if (!c) setLoading(false); })();
-    return () => { c = true; };
-  }, [loadRoutines, dataReady, preloadedRoutines]);
-
-  /* ── Exercise modal ── */
-  async function openExerciseModal(re) {
-    modalOpenCountRef.current += 1;
-    setModalTab("log"); setEditingExName(false);
-    const isSec = re.unit_type === "sec";
-    const n = re.num_sets ?? 2, sch = { min: re.min_val ?? (isSec ? 30 : 6), max: re.max_val ?? (isSec ? 120 : 12) };
-    const wMin = re.weight_min ?? 0, wMax = re.weight_max ?? 100, wStep = re.weight_step ?? 2.5;
-    const wVals = [];
-    for (let v = wMin; v <= wMax; v = Math.round((v + wStep) * 100) / 100) wVals.push(v);
-    const snapWeight = (w) => {
-      const num = Number(w);
-      if (!wVals.length) return String(wMin);
-      let closest = wVals[0];
-      for (const v of wVals) { if (Math.abs(v - num) < Math.abs(closest - num)) closest = v; }
-      return String(closest);
+    (async () => {
+      await initDatabase();
+      await refreshRoutines();
+      if (!c) setLoading(false);
+    })();
+    return () => {
+      c = true;
     };
-    // Use cached data for sets — opens instantly
-    const last = sessionsCacheRef.current[re.exercise_name];
+  }, [refreshRoutines, dataReady]);
+
+  /* ── Toggle handler ── */
+  function handleToggleSection(s) {
+    if (s === "routines") {
+      // Already in routines section — tap-active backs out of any nested view.
+      setSelectedRE(null);
+      setCurrentRoutine(null);
+      setEditingHeaderName(false);
+      setWorkoutId(null);
+      return;
+    }
+    onSwitchSection?.(s);
+  }
+
+  /* ── Back handler ── */
+  React.useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (confirmAction) {
+        setConfirmAction(null);
+        return true;
+      }
+      if (showAddRoutine) {
+        setShowAddRoutine(false);
+        setNewRoutineName("");
+        return true;
+      }
+      if (pickerOpen) {
+        setPickerOpen(false);
+        return true;
+      }
+      if (selectedRE) {
+        setSelectedRE(null);
+        return true;
+      }
+      if (currentRoutine) {
+        closeDay();
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [confirmAction, showAddRoutine, pickerOpen, selectedRE, currentRoutine]);
+
+  /* ── Exercise log helpers ── */
+  const exScheme = React.useMemo(() => {
+    if (!selectedRE) return null;
+    return {
+      repMin: selectedRE.min_val ?? 6,
+      repMax: selectedRE.max_val ?? 12,
+    };
+  }, [selectedRE]);
+
+  function openExercise(re) {
+    const sch = { min: re.min_val ?? 6, max: re.max_val ?? 12 };
+    const numSets = Math.max(1, Math.min(10, re.num_sets ?? 2));
+    const last = sessionsCacheRef.current[re.exercise_id];
     const s = [];
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < numSets; i++) {
       const p = last?.sets?.[i];
-      const w = p?.weight != null ? snapWeight(p.weight) : String(wMin);
-      s.push({ weight: w, reps: p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min });
+      s.push({
+        weight: p?.weight != null ? String(p.weight) : "0",
+        reps:
+          p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min,
+      });
     }
     setSets(s);
-    setSelectedExercise(re);
-    pendingPresentRef.current = true;
-    // Fetch history in background for the History tab
-    setModalLoading(true);
-    getExerciseEntriesGrouped({ exerciseName: re.exercise_name, limit: 500 })
-      .then(hist => { setModalHistory(hist ?? []); setModalLoading(false); })
-      .catch(() => { setModalHistory([]); setModalLoading(false); });
+    setSelectedRE(re);
   }
-  function closeExerciseModal() { closeSheetAnimated(); }
 
-  const modalScheme = React.useMemo(() => {
-    if (!selectedExercise) return { min: 6, max: 12, step: 1, unitShort: "reps" };
-    const isSec = selectedExercise.unit_type === "sec";
-    return { min: selectedExercise.min_val ?? (isSec ? 30 : 6), max: selectedExercise.max_val ?? (isSec ? 120 : 12), step: isSec ? 5 : 1, unitShort: isSec ? "sec" : "reps" };
-  }, [selectedExercise]);
-
-  const weightValues = React.useMemo(() => {
-    if (!selectedExercise) return [0];
-    const a = []; for (let v = selectedExercise.weight_min ?? 0; v <= (selectedExercise.weight_max ?? 100); v = Math.round((v + (selectedExercise.weight_step ?? 2.5)) * 100) / 100) a.push(v); return a;
-  }, [selectedExercise]);
-  const weightLabel = React.useCallback((v) => v % 1 === 0 ? String(v) : parseFloat(v.toFixed(2)).toString(), []);
-  const repsValues = React.useMemo(() => { const a = []; for (let v = modalScheme.min; v <= modalScheme.max; v += modalScheme.step) a.push(v); return a; }, [modalScheme]);
-
-  function updateSet(i, f, v) { setSets((p) => p.map((s, j) => j === i ? { ...s, [f]: v } : s)); }
+  function updateSet(i, field, v) {
+    setSets((p) => p.map((s, j) => (j === i ? { ...s, [field]: v } : s)));
+  }
 
   function onSaveLog() {
-    let wId = workoutId;
-
-    const doLog = async () => {
-      if (!selectedExercise || !sets.length) return false;
-      if (wId == null && currentRoutine) {
-        wId = await startWorkout({ splitIndex: currentRoutine.sort_order, plannedName: currentRoutine.name, startedAtISO: toISO(), routineId: currentRoutine.id });
-        setWorkoutId(wId);
-      }
-      if (wId == null) return false;
-      const d = toISO();
-      const loggedSets = [];
-      for (let i = 0; i < sets.length; i++) {
-        const w = Number(String(sets[i].weight).replace(",", "."));
-        const r = Number(sets[i].reps);
-        if (!Number.isFinite(w) || w < 0) continue;
-        if (!Number.isFinite(r)) continue;
-        const reps = clamp(Math.trunc(r), modalScheme.min, modalScheme.max);
-        await addLog({ workoutId: wId, exerciseName: selectedExercise.exercise_name, dateISO: d, weight: w, unit: "kg", reps, setNumber: i + 1 });
-        loggedSets.push({ weight: w, reps, setNumber: i + 1 });
-      }
-      setSessionsCache(prev => ({ ...prev, [selectedExercise.exercise_name]: { date: d, sets: loggedSets } }));
-      return true;
-    };
-
-    doLog().then((saved) => { if (saved) closeSheetAnimated(); });
-  }
-  async function onDeleteSession(dateISO) {
-    if (!selectedExercise) return;
-    await deleteExerciseSession({ exerciseName: selectedExercise.exercise_name, dateISO });
-    // Optimistic updates — no re-fetch
-    const updatedHistory = modalHistory.filter(s => s.date !== dateISO);
-    setModalHistory(updatedHistory);
-    const nextLatest = updatedHistory.length > 0 ? updatedHistory[0] : null;
-    setSessionsCache(prev => ({ ...prev, [selectedExercise.exercise_name]: nextLatest }));
-    modalOpenCountRef.current += 1; // trigger NumberWheel re-scroll
-    const n = selectedExercise.num_sets ?? 2;
-    const sch = { min: selectedExercise.min_val ?? 6, max: selectedExercise.max_val ?? 12 };
-    if (nextLatest?.sets?.length) {
-      const s = [];
-      for (let i = 0; i < n; i++) { const p = nextLatest.sets[i]; s.push({ weight: p?.weight != null ? String(p.weight) : "0", reps: p?.reps != null ? clamp(Number(p.reps), sch.min, sch.max) : sch.min }); }
-      setSets(s);
-    } else {
-      const s = [];
-      for (let i = 0; i < n; i++) s.push({ weight: "0", reps: sch.min });
-      setSets(s);
+    if (!selectedRE || !sets.length) return;
+    const re = selectedRE;
+    const d = toISO();
+    const loggedSets = [];
+    for (let i = 0; i < sets.length; i++) {
+      const w = Number(String(sets[i].weight).replace(",", "."));
+      const r = clamp(
+        Math.trunc(sets[i].reps),
+        exScheme.repMin,
+        exScheme.repMax,
+      );
+      if (!Number.isFinite(w) || w < 0 || !Number.isFinite(r)) continue;
+      loggedSets.push({ weight: w, reps: r, setNumber: i + 1 });
     }
-  }
+    if (!loggedSets.length) {
+      setSelectedRE(null);
+      return;
+    }
 
-  async function handleEditExercise({ name, unitType, min, max, step, numSets, weightMin, weightMax, weightStep }) {
-    if (!selectedExercise) return;
-    const oldName = selectedExercise.exercise_name;
-    await updateExercise({ oldName, name, unitType, min, max, step, numSets, weightMin, weightMax, weightStep });
-    const u = { ...selectedExercise, exercise_name: name, unit_type: unitType, min_val: min, max_val: max, step, num_sets: numSets, weight_min: weightMin, weight_max: weightMax, weight_step: weightStep };
-    setSelectedExercise(u);
-    setSets((p) => { const r = []; for (let i = 0; i < numSets; i++) r.push(p[i] ?? { weight: "0", reps: min }); return r; });
-    setModalTab("log");
-    if (name !== oldName) setSessionsCache(prev => { const next = { ...prev }; next[name] = next[oldName]; delete next[oldName]; return next; });
-    if (currentRoutine) await loadRoutineExercises(currentRoutine.id);
+    setSessionsCache((prev) => ({
+      ...prev,
+      [re.exercise_id]: { date: d, sets: loggedSets },
+    }));
+    setSelectedRE(null);
+
+    (async () => {
+      try {
+        let wId = workoutId;
+        if (wId == null && currentRoutine) {
+          wId = await startWorkout({
+            routineId: currentRoutine.id,
+            routineName: currentRoutine.name,
+            startedAtISO: d,
+          });
+          setWorkoutId(wId);
+        }
+        for (const s of loggedSets) {
+          await addLog({
+            workoutId: wId,
+            exerciseId: re.exercise_id,
+            dateISO: d,
+            weight: s.weight,
+            reps: s.reps,
+            setNumber: s.setNumber,
+          });
+        }
+      } catch {
+        // Optimistic state already shown — surfacing a stale error mid-flow does more harm than good.
+      }
+    })();
   }
 
   /* ── Routine CRUD ── */
   async function openDay(r) {
-    try {
-      const ex = await getRoutineExercises(r.id);
-      // Pre-cache last sessions for all exercises in one batch
-      const cache = {};
-      await Promise.all((ex ?? []).map(async (e) => {
-        cache[e.exercise_name] = await getLastExerciseSets({ exerciseName: e.exercise_name });
-      }));
+    const ex = await getRoutineExercises(r.id);
+    setRoutineExercises(ex ?? []);
+    setCurrentRoutine(r);
+    if (ex?.length) {
+      const cache = await getLastSetsForExerciseIds(
+        ex.map((e) => e.exercise_id),
+      );
       setSessionsCache(cache);
-      setRoutineExercises(ex ?? []); setCurrentRoutine(r);
-    } catch (e) {
-      setRoutineExercises([]); setCurrentRoutine(r);
+    } else {
+      setSessionsCache({});
     }
   }
-  function closeDay() { setCurrentRoutine(null); setWorkoutId(null); setRoutineExercises([]); setEditingHeaderName(false); }
-  async function handleCreateRoutine() { const t = newRoutineName.trim(); if (!t) return; await createRoutine({ name: t }); setNewRoutineName(""); setShowAddRoutine(false); await loadRoutines(); }
-  function handleDeleteRoutine(r) { setConfirmAction({ title: "Delete Routine", message: "Are you sure?", label: "Delete", onConfirm: async () => { setConfirmAction(null); await deleteRoutine(r.id); if (currentRoutine?.id === r.id) closeDay(); setRoutines(prev => prev.filter(item => item.id !== r.id)); } }); }
-  async function handleAddExerciseSubmit(d) { try { await createExercise(d); } catch { /* exercise may already exist */ } await addExerciseToRoutine({ routineId: currentRoutine.id, exerciseName: d.name }); closeAddSheet(); await loadRoutineExercises(currentRoutine.id); }
-  function handleRemoveExercise(re) { setConfirmAction({ title: "Remove Exercise", message: "Are you sure?", label: "Remove", onConfirm: async () => { setConfirmAction(null); closeExerciseModal(); await removeExerciseFromRoutine(re.id); await loadRoutineExercises(currentRoutine.id); } }); }
-  async function handleRoutineReorder(d) { reorderRoutines(d.map((r) => r.id)); }
-  async function handleExerciseReorder(d) { reorderRoutineExercises(d.map((r) => r.id)); }
+  function closeDay() {
+    setCurrentRoutine(null);
+    setWorkoutId(null);
+    setRoutineExercises([]);
+    setEditingHeaderName(false);
+    setSessionsCache({});
+  }
+
+  async function handleCreateRoutine() {
+    const t = newRoutineName.trim();
+    if (!t) return;
+    await createRoutine({ name: t });
+    setNewRoutineName("");
+    setShowAddRoutine(false);
+    await refreshRoutines();
+  }
+  function handleDeleteRoutine(r) {
+    setConfirmAction({
+      title: "Delete Routine",
+      message: "Are you sure?",
+      label: "Delete",
+      onConfirm: async () => {
+        setConfirmAction(null);
+        await deleteRoutine(r.id);
+        if (currentRoutine?.id === r.id) closeDay();
+        onRoutinesChange?.(routines.filter((i) => i.id !== r.id));
+      },
+    });
+  }
+
+  async function handlePickExercise(ex) {
+    if (!currentRoutine) return;
+    setPickerOpen(false);
+    await addExerciseToRoutine({
+      routineId: currentRoutine.id,
+      exerciseId: ex.id,
+    });
+    await loadRoutineExercises(currentRoutine.id);
+    if (sessionsCacheRef.current[ex.id] === undefined) {
+      const cache = await getLastSetsForExerciseIds([ex.id]);
+      setSessionsCache((prev) => ({ ...prev, ...cache }));
+    }
+    // Update routine count optimistically.
+    onRoutinesChange?.(
+      routines.map((r) =>
+        r.id === currentRoutine.id
+          ? { ...r, exercise_count: (r.exercise_count ?? 0) + 1 }
+          : r,
+      ),
+    );
+  }
+
+  function handleRemoveExercise(re) {
+    setConfirmAction({
+      title: "Remove Exercise",
+      message: "Remove this exercise from the routine?",
+      label: "Remove",
+      onConfirm: async () => {
+        setConfirmAction(null);
+        setSelectedRE(null);
+        await removeExerciseFromRoutine(re.id);
+        await loadRoutineExercises(currentRoutine.id);
+        onRoutinesChange?.(
+          routines.map((r) =>
+            r.id === currentRoutine.id
+              ? {
+                  ...r,
+                  exercise_count: Math.max(0, (r.exercise_count ?? 0) - 1),
+                }
+              : r,
+          ),
+        );
+      },
+    });
+  }
+
+  function handleRoutineReorder(d) {
+    onRoutinesChange?.(d);
+    const ids = d.map((r) => r.id);
+    InteractionManager.runAfterInteractions(() => {
+      reorderRoutines(ids).catch(() => {});
+    });
+  }
+  function handleExerciseReorder(d) {
+    setRoutineExercises(d);
+    const ids = d.map((r) => r.id);
+    InteractionManager.runAfterInteractions(() => {
+      reorderRoutineExercises(ids).catch(() => {});
+    });
+  }
 
   const saveHeaderName = React.useCallback(async () => {
     const t = headerNameDraft.trim();
-    if (t && t !== currentRoutine?.name) { await updateRoutine({ id: currentRoutine.id, name: t }); setCurrentRoutine((r) => ({ ...r, name: t })); await loadRoutines(); }
-    setEditingHeaderName(false);
-  }, [headerNameDraft, currentRoutine, loadRoutines]);
-
-  const saveExName = React.useCallback(async () => {
-    const t = exNameDraft.trim(); setEditingExName(false);
-    if (t && t !== selectedExercise?.exercise_name) {
-      const oldName = selectedExercise.exercise_name;
-      await updateExercise({ oldName, name: t, unitType: selectedExercise.unit_type, min: selectedExercise.min_val, max: selectedExercise.max_val, step: selectedExercise.step, numSets: selectedExercise.num_sets, weightMin: selectedExercise.weight_min, weightMax: selectedExercise.weight_max, weightStep: selectedExercise.weight_step });
-      setSelectedExercise((p) => ({ ...p, exercise_name: t }));
-      setSessionsCache(prev => { const next = { ...prev }; next[t] = next[oldName]; delete next[oldName]; return next; });
-      if (currentRoutine) await loadRoutineExercises(currentRoutine.id);
+    if (t && t !== currentRoutine?.name) {
+      await updateRoutine({ id: currentRoutine.id, name: t });
+      setCurrentRoutine((r) => ({ ...r, name: t }));
+      onRoutinesChange?.(
+        routines.map((r) =>
+          r.id === currentRoutine.id ? { ...r, name: t } : r,
+        ),
+      );
     }
-  }, [exNameDraft, selectedExercise, currentRoutine, loadRoutineExercises]);
+    setEditingHeaderName(false);
+  }, [headerNameDraft, currentRoutine, routines, onRoutinesChange]);
 
-  // Keyboard hide → exit name editing
   React.useEffect(() => {
     const sub = Keyboard.addListener("keyboardDidHide", () => {
       if (editingHeaderName) saveHeaderName();
-      if (editingExName) saveExName();
     });
     return () => sub.remove();
-  }, [editingHeaderName, editingExName, saveHeaderName, saveExName]);
-
-  // Keyboard → change snap point
-  React.useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, () => setKbOpen(true));
-    const hideSub = Keyboard.addListener(hideEvent, () => setKbOpen(false));
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, []);
-
-  // Back handler — re-registers when sheets open/close to stay on top of LIFO stack
-  const [backKey, setBackKey] = React.useState(0);
-  React.useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (addSheetOpenRef.current) { closeAddSheet(); return true; }
-      if (exSheetOpenRef.current) { closeSheetAnimated(); return true; }
-      if (confirmAction) { setConfirmAction(null); return true; }
-      if (currentRoutine) { closeDay(); return true; }
-      if (onBack) { onBack(); return true; }
-      return false;
-    });
-    return () => sub.remove();
-  }, [currentRoutine, onBack, confirmAction, backKey]);
+  }, [editingHeaderName, saveHeaderName]);
 
   if (loading) return <View style={{ flex: 1, backgroundColor: BRAND.bg }} />;
 
-  /* ── Render items ── */
-  openDayRef.current = openDay;
-  openExerciseModalRef.current = openExerciseModal;
+  /* ── Render helpers ── */
+  openExerciseRef.current = openExercise;
 
-  const renderRoutineItem = React.useCallback(({ item }) => {
+  const renderRoutineItem = ({ item }) => {
     const count = item.exercise_count ?? 0;
     return (
       <View style={{ marginBottom: 12 }}>
-        <Pressable onPress={() => openDayRef.current(item)}>
-          <View style={{ backgroundColor: BRAND.surface, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 20 }}>
-            <Text style={{ color: BRAND.text, fontSize: 16, fontWeight: "500" }} numberOfLines={1}>{item.name}</Text>
-            <Text style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>{count} exercise{count !== 1 ? "s" : ""}</Text>
-          </View>
-        </Pressable>
+        <View
+          style={{
+            backgroundColor: BRAND.surface,
+            borderRadius: 16,
+            paddingVertical: 16,
+            paddingHorizontal: 20,
+          }}
+        >
+          <Text
+            style={{ color: BRAND.text, fontSize: 16, fontWeight: "500" }}
+            numberOfLines={1}
+          >
+            {item.name}
+          </Text>
+          <Text style={{ color: BRAND.textMuted, fontSize: 13, marginTop: 4 }}>
+            {count} exercise{count !== 1 ? "s" : ""}
+          </Text>
+        </View>
       </View>
     );
-  }, []);
+  };
 
-  const renderExerciseItem = React.useCallback(({ item: re }) => (
+  const renderExerciseItem = ({ item: re }) => (
     <View style={{ marginBottom: 12 }}>
-      <Pressable onPress={() => openExerciseModalRef.current(re)}>
-        <ExerciseCard exerciseName={re.exercise_name}
-          lastSession={sessionsCacheRef.current[re.exercise_name]}
-          maxVal={re.max_val} />
-      </Pressable>
+      <ExerciseCard
+        exerciseName={re.name}
+        lastSession={sessionsCacheRef.current[re.exercise_id]}
+        maxVal={re.max_val}
+      />
     </View>
-  ), []);
+  );
 
-  /* ── Modals ── */
-  const overlay = (visible, onClose, children) => (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+  const confirmModal = (
+    <ConfirmDialog
+      action={confirmAction}
+      onDismiss={() => setConfirmAction(null)}
+    />
+  );
+
+  /* ── Persistent header ── */
+  const header = (
+    <>
+      <View
+        style={{
+          paddingTop: insets.top + S,
+          paddingBottom: S * 0.75,
+          paddingHorizontal: S,
+        }}
+      >
+        <HeaderToggle
+          active={section ?? "routines"}
+          onSwitch={handleToggleSection}
+        />
+      </View>
+      <View
+        style={{
+          height: StyleSheet.hairlineWidth,
+          backgroundColor: BRAND.border,
+        }}
+      />
+    </>
+  );
+
+  /* ═══ INSIDE A ROUTINE ═══ */
+  if (currentRoutine) {
+    const inRoutineIds = new Set(routineExercises.map((re) => re.exercise_id));
+    const pickable = (exercises ?? []).filter((e) => !inRoutineIds.has(e.id));
+    return (
+      <View style={{ flex: 1, backgroundColor: BRAND.bg }}>
+        {header}
+
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            paddingHorizontal: S,
+            paddingTop: S,
+            paddingBottom: S * 0.5,
+          }}
+        >
+          {editingHeaderName ? (
+            <TextInput
+              value={headerNameDraft}
+              onChangeText={(t) => setHeaderNameDraft(t.slice(0, 40))}
+              autoFocus
+              onSubmitEditing={saveHeaderName}
+              onBlur={saveHeaderName}
+              cursorColor={BRAND.accent}
+              selectionColor="transparent"
+              style={{
+                flex: 1,
+                color: BRAND.text,
+                fontSize: 16,
+                fontWeight: "600",
+                padding: 0,
+                margin: 0,
+              }}
+            />
+          ) : (
+            <Pressable
+              style={{ flex: 1 }}
+              onPress={() => {
+                setHeaderNameDraft(currentRoutine.name);
+                setEditingHeaderName(true);
+              }}
+            >
+              <Text
+                style={{ color: BRAND.text, fontSize: 16, fontWeight: "600" }}
+                numberOfLines={1}
+              >
+                {currentRoutine.name}
+              </Text>
+            </Pressable>
+          )}
+          <Pressable
+            onPress={() => handleDeleteRoutine(currentRoutine)}
+            hitSlop={8}
+          >
+            <MaterialCommunityIcons
+              name="delete-outline"
+              size={20}
+              color={BRAND.error}
+            />
+          </Pressable>
+        </View>
+
+        <SortableList
+          data={routineExercises}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderExerciseItem}
+          onReorder={handleExerciseReorder}
+          onItemPress={(re) => openExerciseRef.current(re)}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: S, paddingTop: S * 0.5 }}
+          bounces={false}
+        />
+
+        <View
+          style={{
+            paddingHorizontal: S,
+            paddingTop: S,
+            paddingBottom: insets.bottom + S,
+            backgroundColor: BRAND.bg,
+          }}
+        >
+          <Pressable
+            onPress={() => setPickerOpen(true)}
+            style={{
+              height: 48,
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: BRAND.accent,
+              borderStyle: "dashed",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <Text
+              style={{ color: BRAND.accent, fontSize: 14, fontWeight: "500" }}
+            >
+              + Add Exercise
+            </Text>
+          </Pressable>
+        </View>
+
+        <ExercisePickerModal
+          visible={pickerOpen}
+          exercises={pickable}
+          onPick={handlePickExercise}
+          onDismiss={() => setPickerOpen(false)}
+        />
+
+        <LogModal
+          visible={!!selectedRE}
+          re={selectedRE}
+          sets={sets}
+          scheme={exScheme}
+          onUpdateSet={updateSet}
+          onSave={onSaveLog}
+          onRemove={() => selectedRE && handleRemoveExercise(selectedRE)}
+          onDismiss={() => setSelectedRE(null)}
+        />
+
+        {confirmModal}
+      </View>
+    );
+  }
+
+  /* ═══ ROUTINE LIST ═══ */
+  return (
+    <View style={{ flex: 1, backgroundColor: BRAND.bg }}>
+      {header}
+
+      <SortableList
+        data={routines}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={renderRoutineItem}
+        onReorder={handleRoutineReorder}
+        onItemPress={openDay}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: S }}
+      />
+
+      <View
+        style={{
+          paddingHorizontal: S,
+          paddingTop: S,
+          paddingBottom: insets.bottom + S,
+          backgroundColor: BRAND.bg,
+        }}
+      >
+        <Pressable
+          onPress={() => setShowAddRoutine(true)}
+          style={{
+            height: 48,
+            borderRadius: 14,
+            borderWidth: 1,
+            borderColor: BRAND.accent,
+            borderStyle: "dashed",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <Text
+            style={{ color: BRAND.accent, fontSize: 14, fontWeight: "500" }}
+          >
+            + Add Routine
+          </Text>
+        </Pressable>
+      </View>
+
+      <Modal
+        visible={showAddRoutine}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          setShowAddRoutine(false);
+          setNewRoutineName("");
+        }}
+        onShow={() => {
+          setTimeout(() => routineNameRef.current?.focus(), 100);
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              Keyboard.dismiss();
+              setShowAddRoutine(false);
+              setNewRoutineName("");
+            }}
+          >
+            <View style={{ flex: 1, backgroundColor: BRAND.overlay }} />
+          </Pressable>
+          <View
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+            pointerEvents="box-none"
+          >
+            <View
+              style={{
+                width: "82%",
+                maxWidth: 320,
+                backgroundColor: BRAND.surface,
+                borderRadius: 20,
+                padding: S * 1.25,
+              }}
+            >
+              <Text
+                style={{
+                  color: BRAND.text,
+                  fontSize: 18,
+                  fontWeight: "700",
+                  marginBottom: S,
+                }}
+              >
+                New Routine
+              </Text>
+              <TextInput
+                ref={routineNameRef}
+                placeholder="Routine name"
+                value={newRoutineName}
+                onChangeText={setNewRoutineName}
+                onSubmitEditing={handleCreateRoutine}
+                cursorColor={BRAND.accent}
+                selectionColor="transparent"
+                placeholderTextColor={BRAND.textMuted}
+                style={{
+                  height: 44,
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: BRAND.border,
+                  color: BRAND.text,
+                  paddingHorizontal: 14,
+                  fontSize: 16,
+                }}
+              />
+              <Pressable
+                onPress={handleCreateRoutine}
+                disabled={!newRoutineName.trim()}
+                style={{
+                  height: 48,
+                  borderRadius: 12,
+                  marginTop: S,
+                  backgroundColor: !newRoutineName.trim()
+                    ? BRAND.surfaceHigh
+                    : BRAND.accent,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <Text
+                  style={{
+                    color: !newRoutineName.trim() ? BRAND.textMuted : BRAND.bg,
+                    fontSize: 15,
+                    fontWeight: "700",
+                  }}
+                >
+                  Create
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {confirmModal}
+    </View>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────────────────── */
+
+function ExercisePickerModal({ visible, exercises, onPick, onDismiss }) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onDismiss}
+    >
       <View style={{ flex: 1 }}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => { Keyboard.dismiss(); onClose(); }}><View style={{ flex: 1, backgroundColor: BRAND.overlay }} /></Pressable>
-        <View style={{ ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center" }} pointerEvents="box-none">
-          {children}
+        <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss}>
+          <View style={{ flex: 1, backgroundColor: BRAND.overlay }} />
+        </Pressable>
+        <View
+          style={{
+            ...StyleSheet.absoluteFillObject,
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+          pointerEvents="box-none"
+        >
+          <View
+            style={{
+              width: "86%",
+              maxWidth: 360,
+              maxHeight: "75%",
+              backgroundColor: BRAND.surface,
+              borderRadius: 20,
+              padding: S,
+            }}
+          >
+            <Text
+              style={{
+                color: BRAND.text,
+                fontSize: 18,
+                fontWeight: "700",
+                marginBottom: S,
+              }}
+            >
+              Add Exercise
+            </Text>
+            {exercises.length === 0 ? (
+              <Text
+                style={{
+                  color: BRAND.textMuted,
+                  fontSize: 14,
+                  paddingVertical: 12,
+                }}
+              >
+                No exercises available. Create some in the Exercise Pool first.
+              </Text>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+                {exercises.map((ex) => (
+                  <Pressable
+                    key={ex.id}
+                    onPress={() => onPick(ex)}
+                    style={({ pressed }) => ({
+                      backgroundColor: pressed
+                        ? BRAND.surfaceHigh
+                        : "transparent",
+                      borderRadius: 12,
+                      paddingVertical: 12,
+                      paddingHorizontal: 12,
+                      marginBottom: 4,
+                    })}
+                  >
+                    <Text
+                      style={{
+                        color: BRAND.text,
+                        fontSize: 15,
+                        fontWeight: "500",
+                      }}
+                      numberOfLines={1}
+                    >
+                      {ex.name}
+                    </Text>
+                    <Text
+                      style={{
+                        color: BRAND.textMuted,
+                        fontSize: 12,
+                        marginTop: 2,
+                      }}
+                    >
+                      {ex.num_sets} set{ex.num_sets !== 1 ? "s" : ""} ·{" "}
+                      {ex.min_val}–{ex.max_val} reps
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+          </View>
         </View>
       </View>
     </Modal>
   );
+}
 
-  const handleExerciseModalBack = React.useCallback(() => {
-    if (editingExName) { setEditingExName(false); return; }
-    if (modalTab !== "log") { setModalTab("log"); return; }
-    closeSheetAnimated();
-  }, [modalTab, editingExName]);
-
-  /* ── Bottom sheets (gorhom) ── */
-  const exerciseSheetRef = React.useRef(null);
-  const addSheetRef = React.useRef(null);
-  const [kbOpen, setKbOpen] = React.useState(false);
-  const exerciseSnapPoints = React.useMemo(() => [kbOpen ? "70%" : "57%"], [kbOpen]);
-  const addSnapPoints = React.useMemo(() => [kbOpen ? "86%" : "57%"], [kbOpen]);
-
-  const exSheetOpenRef = React.useRef(false);
-  const addSheetOpenRef = React.useRef(false);
-
-  function openSheetAnimated() { exSheetOpenRef.current = true; exerciseSheetRef.current?.present(); }
-  function closeSheetAnimated() { Keyboard.dismiss(); exSheetOpenRef.current = false; exerciseSheetRef.current?.dismiss(); }
-
-  // Present exercise sheet after state commits (ensures NumberWheels render with correct data)
-  React.useEffect(() => {
-    if (pendingPresentRef.current && selectedExercise) {
-      pendingPresentRef.current = false;
-      requestAnimationFrame(() => openSheetAnimated());
-    }
-  }, [selectedExercise]);
-  function openAddSheet() { addSheetOpenRef.current = true; addSheetRef.current?.present(); }
-  function closeAddSheet() { Keyboard.dismiss(); addSheetOpenRef.current = false; addSheetRef.current?.dismiss(); }
-
-  const renderBackdrop = React.useCallback((props) => (
-    <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} pressBehavior="close" style={[props.style, { backgroundColor: BRAND.overlay }]} />
-  ), []);
-
-
-  const exerciseSheet = (
-    <BottomSheetModal
-      ref={exerciseSheetRef}
-
-      snapPoints={exerciseSnapPoints}
-      enablePanDownToClose
-      enableDynamicSizing={false}
-      enableOverDrag={false}
-      enableContentPanningGesture={false}
-      backdropComponent={renderBackdrop}
-      handleIndicatorStyle={{ backgroundColor: BRAND.border, width: 36 }}
-      handleStyle={{ paddingVertical: 12 }}
-      backgroundStyle={{ backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
-      onDismiss={() => { exSheetOpenRef.current = false; setSelectedExercise(null); setEditingExName(false); setBackKey((k) => k + 1); }}
-    >
-      <View style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
-        {selectedExercise && (
-          <View style={{ flex: 1 }}>
-            {/* Name */}
-            {editingExName ? (
-              <RNTextInput value={exNameDraft} onChangeText={(t) => setExNameDraft(t.slice(0, 30))} autoFocus onSubmitEditing={saveExName} onBlur={saveExName}
-                cursorColor={BRAND.accent} selectionColor="transparent"
-                style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", padding: 0, margin: 0, marginBottom: S * 1.5 }} />
-            ) : (
-              <Pressable disabled={modalTab !== "edit"} onPress={() => { setExNameDraft(selectedExercise.exercise_name); setEditingExName(true); }}>
-                <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }} numberOfLines={1}>{selectedExercise.exercise_name}</Text>
-              </Pressable>
-            )}
-
-            {/* Content area */}
-            <View style={{ flex: 1 }}>
-              {modalTab === "log" && (
-                <View style={{ flex: 1 }}>
-                  <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled bounces={false}>
-                    {sets.map((s, i) => (
-                      <View key={i} style={{ marginBottom: S }}>
-                        <Text style={{ color: BRAND.textSecondary, fontSize: 12, fontWeight: "600", letterSpacing: 1, marginBottom: 6 }}>SET {i + 1}</Text>
-                        <NumberWheel resetKey={`w-${modalOpenCountRef.current}-${i}`} values={weightValues} value={Number(s.weight)} onValueChange={(v) => updateSet(i, "weight", String(v))} formatLabel={weightLabel} />
-                        <View style={{ height: 6 }} />
-                        <NumberWheel resetKey={`r-${modalOpenCountRef.current}-${i}`} values={repsValues} value={s.reps} onValueChange={(v) => updateSet(i, "reps", v)} />
-                      </View>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-
-              {modalTab === "edit" && (
-                <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bounces={false}>
-                  <ExerciseForm
-                    initialName={selectedExercise.exercise_name} initialUnitType={selectedExercise.unit_type ?? "reps"}
-                    initialMin={selectedExercise.min_val ?? 6} initialMax={selectedExercise.max_val ?? 12}
-                    initialStep={selectedExercise.step ?? 1} initialNumSets={selectedExercise.num_sets ?? 2}
-                    initialWeightMin={selectedExercise.weight_min ?? 0} initialWeightMax={selectedExercise.weight_max ?? 100}
-                    initialWeightStep={selectedExercise.weight_step ?? 2.5}
-                    onSubmit={handleEditExercise} showNameField={false} showButton={false}
-                    onSubmitRef={(fn) => { editSubmitRef.current = fn; }} />
-                </ScrollView>
-              )}
-
-              {modalTab === "history" && (
-                <View style={{ flex: 1 }}>
-                  {modalLoading ? <ActivityIndicator style={{ flex: 1 }} color={BRAND.accent} /> : !modalHistory.length ? (
-                    <Text style={{ color: BRAND.textMuted, marginTop: S }}>No history yet</Text>
-                  ) : (
-                    <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} bounces={false}>
-                      {modalHistory.map((session) => (
-                        <View key={session.date} style={{ marginBottom: S }}>
-                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: BRAND.border, paddingBottom: 6 }}>
-                            <Text style={{ color: BRAND.text, fontSize: 13, fontWeight: "600" }}>{formatDateEuropean(session.date)}</Text>
-                            <Pressable onPress={() => onDeleteSession(session.date)} hitSlop={8}><Text style={{ color: BRAND.error, fontSize: 12 }}>Delete</Text></Pressable>
-                          </View>
-                          {session.sets.map((s, i) => (
-                            <View key={i} style={{ flexDirection: "row", paddingVertical: 4}}>
-                              <Text style={{ color: BRAND.textMuted, fontSize: 13, width: 44 }}>Set {s.setNumber}</Text>
-                              <Text style={{ color: BRAND.text, fontSize: 13, flex: 1 }}>{s.weight} kg</Text>
-                              <Text style={{ color: BRAND.textSecondary, fontSize: 13 }}>{s.reps} {modalScheme.unitShort}</Text>
-                            </View>
-                          ))}
-                        </View>
-                      ))}
-                    </ScrollView>
-                  )}
-                </View>
-              )}
-            </View>
-
-
-            {/* Action button */}
-            {modalTab === "log" && (
-              <View style={{ flexDirection: "row", marginBottom: 10 }}>
-                <Pill label="LOG" active onPress={onSaveLog} uppercase />
-              </View>
-            )}
-            {modalTab === "edit" && (
-              <View style={{ flexDirection: "row", marginBottom: 10 }}>
-                <Pill label="UPDATE" active onPress={() => { if (editSubmitRef.current) editSubmitRef.current(); }} />
-              </View>
-            )}
-            {modalTab === "history" && (
-              <View style={{ flexDirection: "row", marginBottom: 10 }}>
-                <Pill label="CLEAR" active onPress={() => {
-                  if (!modalHistory.length) return;
-                  setConfirmAction({ title: "Clear History", message: "Delete all logs for this exercise?", label: "Clear",
-                    onConfirm: async () => {
-                      setConfirmAction(null);
-                      for (const session of modalHistory) await deleteExerciseSession({ exerciseName: selectedExercise.exercise_name, dateISO: session.date });
-                      setModalHistory([]);
-                      setSessionsCache(prev => ({ ...prev, [selectedExercise.exercise_name]: null }));
-                    },
-                  });
-                }} />
-              </View>
-            )}
-
-            {/* Bottom nav — always pinned */}
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Pill label="Edit" icon="pencil-outline" active={modalTab === "edit"} onPress={() => setModalTab(modalTab === "edit" ? "log" : "edit")} />
-              <Pill label="History" icon="history" active={modalTab === "history"} onPress={() => setModalTab(modalTab === "history" ? "log" : "history")} />
-              <Pill label="Delete" icon="delete-outline" danger onPress={() => handleRemoveExercise(selectedExercise)} />
-            </View>
-          </View>
-        )}
-      </View>
-    </BottomSheetModal>
-  );
-
-  const addExSheet = (
-    <BottomSheetModal
-      ref={addSheetRef}
-
-      snapPoints={addSnapPoints}
-      enablePanDownToClose
-      enableDynamicSizing={false}
-      enableOverDrag={false}
-      enableContentPanningGesture={false}
-      backdropComponent={renderBackdrop}
-      handleIndicatorStyle={{ backgroundColor: BRAND.border, width: 36 }}
-      handleStyle={{ paddingVertical: 12 }}
-      backgroundStyle={{ backgroundColor: BRAND.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
-      onDismiss={() => { addSheetOpenRef.current = false; setBackKey((k) => k + 1); }}
-    >
-      <BottomSheetView style={{ flex: 1, padding: S, paddingBottom: insets.bottom + S }}>
-        <Text style={{ color: BRAND.text, fontSize: 22, fontWeight: "700", marginBottom: S * 1.5 }}>New Exercise</Text>
-        <ExerciseForm submitLabel="Add Exercise" onSubmit={handleAddExerciseSubmit} pinButton />
-      </BottomSheetView>
-    </BottomSheetModal>
-  );
-
-  const confirmModal = overlay(confirmAction !== null, () => setConfirmAction(null),
-    <View style={{ width: "82%", maxWidth: 320, backgroundColor: BRAND.surface, borderRadius: 20, padding: S * 1.25 }}>
-      <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", marginBottom: 6 }}>{confirmAction?.title}</Text>
-      <Text style={{ color: BRAND.textSecondary, fontSize: 14, marginBottom: S }}>{confirmAction?.message}</Text>
-      <View style={{ flexDirection: "row", gap: 10 }}>
-        <Pill label="Cancel" onPress={() => setConfirmAction(null)} />
-        <Pressable onPress={confirmAction?.onConfirm} style={{ flex: 1, height: 44, borderRadius: 12, backgroundColor: BRAND.error, justifyContent: "center", alignItems: "center" }}>
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>{confirmAction?.label}</Text>
-        </Pressable>
-      </View>
-    </View>,
-  );
-
-  /* ═══ ROUTINE LIST ═══ */
-  if (currentRoutine === null) {
-    return (
-      <BottomSheetModalProvider>
-      <View style={{ flex: 1, backgroundColor: BRAND.bg }}>
-        {/* Header */}
-        <View style={{ paddingTop: insets.top + S, paddingBottom: S * 0.75, paddingHorizontal: S }}>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", flex: 1 }}>Workout Routine</Text>
-            <IconButton icon="weight-lifter" size={20} iconColor={BRAND.accent} style={{ margin: 0 }} />
-          </View>
-        </View>
-        <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: BRAND.border }} />
-
-        <SortableList data={routines} keyExtractor={(item) => String(item.id)} renderItem={renderRoutineItem}
-          onReorder={handleRoutineReorder} style={{ flex: 1 }}
-          contentContainerStyle={{ padding: S }} />
-        <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
-          <Pressable onPress={() => setShowAddRoutine(true)} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
-            <Text style={{ color: BRAND.accent, fontSize: 14, fontWeight: "500" }}>+ Add Routine</Text>
-          </Pressable>
-        </View>
-
-        <Modal visible={showAddRoutine} transparent animationType="fade" statusBarTranslucent
-          onRequestClose={() => { setShowAddRoutine(false); setNewRoutineName(""); }}
-          onShow={() => { setTimeout(() => routineNameRef.current?.focus(), 100); }}>
-          <View style={{ flex: 1 }}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => { Keyboard.dismiss(); setShowAddRoutine(false); setNewRoutineName(""); }}><View style={{ flex: 1, backgroundColor: BRAND.overlay }} /></Pressable>
-            <View style={{ ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center" }} pointerEvents="box-none">
-              <View style={{ width: "82%", maxWidth: 320, backgroundColor: BRAND.surface, borderRadius: 20, padding: S * 1.25 }}>
-                <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700", marginBottom: S }}>New Routine</Text>
-                <TextInput ref={routineNameRef} mode="outlined" placeholder="Routine name" value={newRoutineName} onChangeText={setNewRoutineName} onSubmitEditing={handleCreateRoutine}
-                  cursorColor={BRAND.accent} selectionColor="transparent"
-                  style={{ height: 44, backgroundColor: "transparent" }} contentStyle={{ height: 44 }} textColor={BRAND.text}
-                  outlineStyle={{ borderRadius: 10, borderWidth: 1, borderColor: BRAND.border }} placeholderTextColor={BRAND.textMuted} />
-                <Pressable onPress={handleCreateRoutine} disabled={!newRoutineName.trim()}
-                  style={{ height: 48, borderRadius: 12, marginTop: S, backgroundColor: !newRoutineName.trim() ? BRAND.surfaceHigh : BRAND.accent, justifyContent: "center", alignItems: "center" }}>
-                  <Text style={{ color: !newRoutineName.trim() ? BRAND.textMuted : BRAND.bg, fontSize: 15, fontWeight: "700" }}>Create</Text>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-        </Modal>
-        {confirmModal}
-      </View>
-      </BottomSheetModalProvider>
-    );
-  }
-
-  /* ═══ EXERCISE LIST ═══ */
+function LogModal({
+  visible,
+  re,
+  sets,
+  scheme,
+  onUpdateSet,
+  onSave,
+  onRemove,
+  onDismiss,
+}) {
+  if (!re || !scheme) return <Modal visible={false} transparent />;
   return (
-    <BottomSheetModalProvider>
-    <View style={{ flex: 1, backgroundColor: BRAND.bg }}>
-      {/* Header */}
-      <View style={{ paddingTop: insets.top + S, paddingBottom: S * 0.75, paddingHorizontal: S, backgroundColor: BRAND.bg }}>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          {editingHeaderName ? (
-            <RNTextInput value={headerNameDraft} onChangeText={(t) => setHeaderNameDraft(t.slice(0, 40))} autoFocus onSubmitEditing={saveHeaderName} onBlur={saveHeaderName}
-              cursorColor={BRAND.accent} selectionColor="transparent"
-              style={{ flex: 1, color: BRAND.text, fontSize: 18, fontWeight: "700", padding: 0, margin: 0 }} />
-          ) : (
-            <Pressable style={{ flex: 1 }} onPress={() => { setHeaderNameDraft(currentRoutine.name); setEditingHeaderName(true); }}>
-              <Text style={{ color: BRAND.text, fontSize: 18, fontWeight: "700" }} numberOfLines={1}>{currentRoutine.name}</Text>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={onDismiss}
+    >
+      <View style={{ flex: 1 }}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => {
+            Keyboard.dismiss();
+            onDismiss();
+          }}
+        >
+          <View style={{ flex: 1, backgroundColor: BRAND.overlay }} />
+        </Pressable>
+        <View
+          style={{
+            ...StyleSheet.absoluteFillObject,
+            justifyContent: "center",
+            alignItems: "center",
+            paddingHorizontal: S,
+          }}
+          pointerEvents="box-none"
+        >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 360,
+              maxHeight: "85%",
+              backgroundColor: BRAND.surface,
+              borderRadius: 20,
+              padding: S,
+              transform: [{ translateY: LOG_MODAL_OFFSET }],
+            }}
+          >
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: S,
+              }}
+            >
+              <Text
+                style={{
+                  flex: 1,
+                  color: BRAND.text,
+                  fontSize: 18,
+                  fontWeight: "700",
+                }}
+                numberOfLines={1}
+              >
+                {re.name}
+              </Text>
+              <Pressable onPress={onRemove} hitSlop={8}>
+                <MaterialCommunityIcons
+                  name="delete-outline"
+                  size={20}
+                  color={BRAND.error}
+                />
+              </Pressable>
+            </View>
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {sets.map((s, i) => (
+                <View key={i} style={{ marginBottom: 14 }}>
+                  <Text
+                    style={{
+                      color: BRAND.textSecondary,
+                      fontSize: 11,
+                      fontWeight: "600",
+                      letterSpacing: 1,
+                      marginBottom: 6,
+                    }}
+                  >
+                    SET {i + 1}
+                  </Text>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      height: 44,
+                      backgroundColor: BRAND.surfaceHigh,
+                      borderRadius: 12,
+                      paddingHorizontal: 14,
+                    }}
+                  >
+                    <TextInput
+                      value={s.weight}
+                      onChangeText={(text) => onUpdateSet(i, "weight", text)}
+                      keyboardType="decimal-pad"
+                      cursorColor={BRAND.accent}
+                      selectionColor="transparent"
+                      style={{
+                        flex: 1,
+                        height: 44,
+                        color: BRAND.text,
+                        fontSize: 16,
+                        fontWeight: "600",
+                        padding: 0,
+                      }}
+                    />
+                    <Text
+                      style={{
+                        color: BRAND.textMuted,
+                        fontSize: 13,
+                        marginLeft: 8,
+                      }}
+                    >
+                      kg
+                    </Text>
+                  </View>
+                  <View style={{ height: 8 }} />
+                  <Stepper
+                    value={s.reps}
+                    onValueChange={(v) => onUpdateSet(i, "reps", v)}
+                    min={scheme.repMin}
+                    max={scheme.repMax}
+                    step={1}
+                    unit="reps"
+                  />
+                </View>
+              ))}
+            </ScrollView>
+            <Pressable
+              onPress={onSave}
+              style={{
+                height: 48,
+                borderRadius: 12,
+                marginTop: 12,
+                backgroundColor: BRAND.accent,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: BRAND.bg,
+                  fontSize: 15,
+                  fontWeight: "700",
+                  letterSpacing: 1,
+                }}
+              >
+                LOG
+              </Text>
             </Pressable>
-          )}
-          <IconButton icon="delete-outline" size={20} iconColor={BRAND.error} onPress={() => handleDeleteRoutine(currentRoutine)} style={{ margin: 0 }} />
+          </View>
         </View>
       </View>
-      <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: BRAND.border }} />
-
-      <SortableList data={routineExercises} keyExtractor={(item) => String(item.id)} renderItem={renderExerciseItem}
-        onReorder={handleExerciseReorder} style={{ flex: 1 }}
-        contentContainerStyle={{ padding: S }} bounces={false} keyboardShouldPersistTaps="handled" />
-
-      <View style={{ paddingHorizontal: S, paddingTop: S, paddingBottom: insets.bottom + S, backgroundColor: BRAND.bg }}>
-        <Pressable onPress={openAddSheet} style={{ height: 48, borderRadius: 14, borderWidth: 1, borderColor: BRAND.accent, borderStyle: "dashed", justifyContent: "center", alignItems: "center" }}>
-          <Text style={{ color: BRAND.accent, fontSize: 14, fontWeight: "500" }}>+ Add Exercise</Text>
-        </Pressable>
-      </View>
-
-      {/* Add Exercise bottom sheet */}
-      {addExSheet}
-
-      {exerciseSheet}
-      {confirmModal}
-    </View>
-    </BottomSheetModalProvider>
+    </Modal>
   );
 }

@@ -1,6 +1,6 @@
 import * as React from "react";
-import { Pressable } from "react-native";
-import { IconButton, Text } from "react-native-paper";
+import { Pressable, Text } from "react-native";
+import MaterialCommunityIcons from "@expo/vector-icons/MaterialCommunityIcons";
 import { BRAND } from "../constants/colors";
 
 export function Pill({ label, onPress, active, danger, icon, uppercase, disabled }) {
@@ -15,7 +15,7 @@ export function Pill({ label, onPress, active, danger, icon, uppercase, disabled
         opacity: disabled ? 0.4 : pressed ? 0.8 : 1,
       })}
     >
-      {icon && <IconButton icon={icon} size={16} iconColor={active ? BRAND.bg : danger ? BRAND.error : BRAND.textSecondary} style={{ margin: 0, width: 16, height: 16 }} />}
+      {icon && <MaterialCommunityIcons name={icon} size={16} color={active ? BRAND.bg : danger ? BRAND.error : BRAND.textSecondary} />}
       <Text style={{ color: active ? BRAND.bg : danger ? BRAND.error : BRAND.text, fontWeight: active ? "700" : "500", fontSize: 13, letterSpacing: uppercase ? 1 : 0 }}>{label}</Text>
     </Pressable>
   );

@@ -10,16 +10,15 @@
       "**/*"
     ],
     "splash": {
-      "image": "./assets/splash-logo.png",
-      "backgroundColor": "#0A0A0A",
-      "resizeMode": "contain"
+      "backgroundColor": "#0A0A0A"
     },
     "plugins": [
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash-logo.png",
-          "backgroundColor": "#0A0A0A"
+          "backgroundColor": "#0A0A0A",
+          "image": "./assets/icon.png",
+          "imageWidth": 200
         }
       ]
     ],

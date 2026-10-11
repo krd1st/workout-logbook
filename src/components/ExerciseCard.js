@@ -1,6 +1,5 @@
 import * as React from "react";
-import { View } from "react-native";
-import { Text } from "react-native-paper";
+import { Text, View } from "react-native";
 import { BRAND } from "../constants/colors";
 
 export const ExerciseCard = React.memo(function ExerciseCard({ exerciseName, lastSession, maxVal }) {
